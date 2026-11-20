@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 (batch CER and WER).
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] A public loader, exported from `buddhist_eval`, reads a local EvalAI JSON file, given as a `pathlib.Path`, into a mapping from `filename` to text. It reads `label` for ground truth and `prediction` for submissions.
 - [ ] A single top-level object, not a list, is accepted as a one-item list, as the EvalAI backend does.
