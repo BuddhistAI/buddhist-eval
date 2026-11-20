@@ -12,7 +12,7 @@ Models are penalised for missing or empty Predictions instead of having them ski
 
 **Blocked by:** 02 (single-pair CER and WER).
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] `score_cer_batch` and `score_wer_batch` are exported from `buddhist_eval`.
 - [ ] `ErrorRateBatchScore` is a frozen dataclass with `mean`, `corpus`, `items`, `skipped_ids` and `extra_ids`. Scores are unrounded.
