@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 (batch CER and WER).
 
-**Status:** claimed
+**Status:** resolved
 
 - [x] A public loader, exported from `buddhist_eval`, reads a local EvalAI JSON file, given as a `pathlib.Path`, into a mapping from `filename` to text. It reads `label` for ground truth and `prediction` for submissions.
 - [x] A single top-level object, not a list, is accepted as a one-item list, as the EvalAI backend does.
@@ -12,3 +12,7 @@
 - [x] No network or S3 access.
 - [x] End-to-end test: small ground-truth and submission fixture files are loaded and passed to `score_cer_batch`, and the result matches the expected fixture score.
 - [x] Behaviour tests cover each malformed-input case.
+
+## Comments
+
+- Merged via `impl/04-evalai-json-loader` at 4546720.
