@@ -129,6 +129,33 @@ def test_score_wer_batch_missing_prediction_scores_as_empty() -> None:
     )
 
 
+def test_score_wer_batch_empty_reference_is_skipped() -> None:
+    """An empty Reference is left out of mean/corpus and listed in skipped_ids."""
+    references = {"keep": "one two", "skip": "", "also_skip": "   "}
+    predictions = {"keep": "one two", "skip": "x", "also_skip": "y"}
+    result = score_wer_batch(references, predictions, language="en")
+    assert result.mean == 0.0
+    assert result.corpus == 0.0
+    assert set(result.skipped_ids) == {"skip", "also_skip"}
+    assert set(result.items) == {"keep"}
+
+
+def test_score_wer_batch_extra_prediction_ids_are_listed() -> None:
+    """Prediction ids with no Reference are ignored and listed in extra_ids."""
+    references = {"a": "one two"}
+    predictions = {"a": "one two", "extra": "zz", "also_extra": "yy"}
+    result = score_wer_batch(references, predictions, language="en")
+    assert result.mean == 0.0
+    assert set(result.extra_ids) == {"extra", "also_extra"}
+    assert set(result.items) == {"a"}
+
+
+def test_score_wer_batch_empty_batch_raises_empty_input_error() -> None:
+    """An empty References mapping raises EmptyInputError."""
+    with pytest.raises(EmptyInputError):
+        score_wer_batch({}, {}, language="en")
+
+
 def test_score_cer_batch_parity_mean_on_tibetan_fixture() -> None:
     """Batch CER mean equals EvalAI method (per-item evaluate CER on Wylie, averaged)."""
     result = score_cer_batch(_BO_REFS, _BO_PREDS, language="bo")
