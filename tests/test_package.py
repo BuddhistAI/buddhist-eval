@@ -5,6 +5,7 @@ from buddhist_eval import (
     BuddhistEvalError,
     EmptyInputError,
     InvalidSpanError,
+    MalformedEvalAIFileError,
     MisalignedTextsError,
 )
 
@@ -15,8 +16,9 @@ def test_package_version_is_0_1_0() -> None:
 
 
 def test_error_classes_are_exported_and_share_base() -> None:
-    """Empty-input, misaligned-text and invalid-span errors share BuddhistEvalError."""
+    """Package errors share BuddhistEvalError."""
     assert issubclass(EmptyInputError, BuddhistEvalError)
     assert issubclass(MisalignedTextsError, BuddhistEvalError)
     assert issubclass(InvalidSpanError, BuddhistEvalError)
+    assert issubclass(MalformedEvalAIFileError, BuddhistEvalError)
     assert issubclass(BuddhistEvalError, Exception)

@@ -21,8 +21,10 @@ from buddhist_eval.errors import (
     BuddhistEvalError,
     EmptyInputError,
     InvalidSpanError,
+    MalformedEvalAIFileError,
     MisalignedTextsError,
 )
+from buddhist_eval.utils.evalai import load_evalai_json
 
 __version__ = "0.1.0"
 
@@ -33,11 +35,13 @@ __all__ = [
     "ErrorRateBatchScore",
     "ErrorRateScore",
     "InvalidSpanError",
+    "MalformedEvalAIFileError",
     "MisalignedTextsError",
     "Span",
     "SpanBatchScore",
     "SpanScore",
     "TagScore",
+    "load_evalai_json",
     "score_cer",
     "score_cer_batch",
     "score_spans",
