@@ -11,7 +11,7 @@ Matching reproduces `match_iou` and `prf` from the quotation-detection repo exac
 
 **Blocked by:** 01 (package foundation).
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] `score_spans`, the document and Span types, `SpanScore` and `TagScore` are exported from `buddhist_eval`. All are frozen dataclasses.
 - [ ] IoU is computed on inclusive ranges, so `(0, 4)` covers five characters.

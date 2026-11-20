@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 (package foundation).
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] `score_cer` and `score_wer` are exported from `buddhist_eval` and take a required `language`.
 - [ ] Text preparation strips leading and trailing whitespace, then converts to Wylie with `pyewts` only for `"bo"`.
