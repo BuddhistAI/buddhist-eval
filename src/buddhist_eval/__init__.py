@@ -11,9 +11,11 @@ from buddhist_eval.core.error_rates import (
 from buddhist_eval.core.spans import (
     Document,
     Span,
+    SpanBatchScore,
     SpanScore,
     TagScore,
     score_spans,
+    score_spans_batch,
 )
 from buddhist_eval.errors import (
     BuddhistEvalError,
@@ -33,11 +35,13 @@ __all__ = [
     "InvalidSpanError",
     "MisalignedTextsError",
     "Span",
+    "SpanBatchScore",
     "SpanScore",
     "TagScore",
     "score_cer",
     "score_cer_batch",
     "score_spans",
+    "score_spans_batch",
     "score_wer",
     "score_wer_batch",
     "__version__",
