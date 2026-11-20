@@ -6,6 +6,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 from buddhist_eval.errors import (
+    BuddhistEvalError,
     EmptyInputError,
     InvalidSpanError,
     MisalignedTextsError,
@@ -72,6 +73,15 @@ class SpanBatchScore:
     extra_ids: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class _SpanMatch:
+    """One gold/predicted Span pairing with its IoU."""
+
+    gold_index: int
+    pred_index: int
+    iou: float
+
+
 def score_spans(
     gold: Document,
     predicted: Document,
@@ -89,33 +99,13 @@ def score_spans(
 
     Raises:
         MisalignedTextsError: If gold and predicted texts differ.
-        InvalidSpanError: If a Span is inverted, negative, or past the text,
-            or if ``iou_threshold`` is outside (0, 1].
+        BuddhistEvalError: If ``iou_threshold`` is outside (0, 1].
+        InvalidSpanError: If a Span is inverted, negative, or past the text.
     """
     _validate_threshold(iou_threshold)
     _validate_documents(gold, predicted)
-
     matches = _match_iou(gold.spans, predicted.spans, iou_threshold)
-    n_gold = len(gold.spans)
-    n_pred = len(predicted.spans)
-    n_match = len(matches)
-    precision, recall, f1 = _prf(n_match, n_pred, n_gold)
-    mean_iou = (
-        sum(iou for _, _, iou in matches) / n_match if n_match else 0.0
-    )
-    per_tag = _per_tag_scores(gold.spans, predicted.spans, matches)
-
-    return SpanScore(
-        iou_threshold=iou_threshold,
-        precision=precision,
-        recall=recall,
-        f1=f1,
-        n_gold=n_gold,
-        n_pred=n_pred,
-        n_match=n_match,
-        mean_iou=mean_iou,
-        per_tag=per_tag,
-    )
+    return _build_span_score(iou_threshold, gold.spans, predicted.spans, matches)
 
 
 def score_spans_batch(
@@ -140,52 +130,45 @@ def score_spans_batch(
     Raises:
         EmptyInputError: If ``golds`` is empty.
         MisalignedTextsError: If a paired document's texts differ.
-        InvalidSpanError: If a Span is invalid or ``iou_threshold`` is
-            outside (0, 1].
+        BuddhistEvalError: If ``iou_threshold`` is outside (0, 1].
+        InvalidSpanError: If a Span is invalid.
     """
     if not golds:
         raise EmptyInputError("golds batch is empty")
     _validate_threshold(iou_threshold)
 
     extra_ids = tuple(sorted(set(predictions) - set(golds)))
-    all_gold_spans: list[Span] = []
-    all_pred_spans: list[Span] = []
-    # Matches stored as (global_gold_idx, global_pred_idx, iou) for pooling.
-    all_matches: list[tuple[int, int, float]] = []
-    gold_offset = 0
-    pred_offset = 0
-    iou_sum = 0.0
-
-    for doc_id, gold in golds.items():
-        predicted = predictions.get(doc_id)
-        if predicted is None:
-            _validate_spans(gold)
-            all_gold_spans.extend(gold.spans)
-            gold_offset += len(gold.spans)
-            continue
-
-        _validate_documents(gold, predicted)
-        matches = _match_iou(gold.spans, predicted.spans, iou_threshold)
-        for g_idx, p_idx, iou in matches:
-            all_matches.append((gold_offset + g_idx, pred_offset + p_idx, iou))
-            iou_sum += iou
-        all_gold_spans.extend(gold.spans)
-        all_pred_spans.extend(predicted.spans)
-        gold_offset += len(gold.spans)
-        pred_offset += len(predicted.spans)
-
-    n_gold = len(all_gold_spans)
-    n_pred = len(all_pred_spans)
-    n_match = len(all_matches)
-    precision, recall, f1 = _prf(n_match, n_pred, n_gold)
-    mean_iou = iou_sum / n_match if n_match else 0.0
-    per_tag = _per_tag_scores(
-        tuple(all_gold_spans),
-        tuple(all_pred_spans),
-        all_matches,
+    gold_spans, pred_spans, matches = _pool_batch_matches(
+        golds, predictions, iou_threshold
+    )
+    base = _build_span_score(iou_threshold, gold_spans, pred_spans, matches)
+    return SpanBatchScore(
+        iou_threshold=base.iou_threshold,
+        precision=base.precision,
+        recall=base.recall,
+        f1=base.f1,
+        n_gold=base.n_gold,
+        n_pred=base.n_pred,
+        n_match=base.n_match,
+        mean_iou=base.mean_iou,
+        per_tag=base.per_tag,
+        extra_ids=extra_ids,
     )
 
-    return SpanBatchScore(
+
+def _build_span_score(
+    iou_threshold: float,
+    gold_spans: tuple[Span, ...],
+    pred_spans: tuple[Span, ...],
+    matches: list[_SpanMatch],
+) -> SpanScore:
+    """Build overall and per-Tag SpanScore fields from matched Spans."""
+    n_gold = len(gold_spans)
+    n_pred = len(pred_spans)
+    n_match = len(matches)
+    precision, recall, f1 = _precision_recall_f1(n_match, n_pred, n_gold)
+    mean_iou = sum(m.iou for m in matches) / n_match if n_match else 0.0
+    return SpanScore(
         iou_threshold=iou_threshold,
         precision=precision,
         recall=recall,
@@ -194,14 +177,50 @@ def score_spans_batch(
         n_pred=n_pred,
         n_match=n_match,
         mean_iou=mean_iou,
-        per_tag=per_tag,
-        extra_ids=extra_ids,
+        per_tag=_per_tag_scores(gold_spans, pred_spans, matches),
     )
+
+
+def _pool_batch_matches(
+    golds: dict[str, Document],
+    predictions: dict[str, Document],
+    iou_threshold: float,
+) -> tuple[tuple[Span, ...], tuple[Span, ...], list[_SpanMatch]]:
+    """Validate documents and pool Spans/Matches with global indices."""
+    all_gold: list[Span] = []
+    all_pred: list[Span] = []
+    all_matches: list[_SpanMatch] = []
+    gold_offset = 0
+    pred_offset = 0
+
+    for doc_id, gold in golds.items():
+        predicted = predictions.get(doc_id)
+        if predicted is None:
+            _validate_spans(gold)
+            all_gold.extend(gold.spans)
+            gold_offset += len(gold.spans)
+            continue
+
+        _validate_documents(gold, predicted)
+        for match in _match_iou(gold.spans, predicted.spans, iou_threshold):
+            all_matches.append(
+                _SpanMatch(
+                    gold_index=gold_offset + match.gold_index,
+                    pred_index=pred_offset + match.pred_index,
+                    iou=match.iou,
+                )
+            )
+        all_gold.extend(gold.spans)
+        all_pred.extend(predicted.spans)
+        gold_offset += len(gold.spans)
+        pred_offset += len(predicted.spans)
+
+    return tuple(all_gold), tuple(all_pred), all_matches
 
 
 def _validate_threshold(iou_threshold: float) -> None:
     if not (0.0 < iou_threshold <= 1.0):
-        raise InvalidSpanError(
+        raise BuddhistEvalError(
             f"iou_threshold must be in (0, 1], got {iou_threshold!r}"
         )
 
@@ -237,7 +256,7 @@ def _match_iou(
     gold: tuple[Span, ...],
     pred: tuple[Span, ...],
     threshold: float,
-) -> list[tuple[int, int, float]]:
+) -> list[_SpanMatch]:
     """Greedy one-to-one matching by descending (IoU, gold index, pred index)."""
     candidates: list[tuple[float, int, int]] = []
     for p_idx, p in enumerate(pred):
@@ -250,17 +269,19 @@ def _match_iou(
     candidates.sort(reverse=True)
     used_g: set[int] = set()
     used_p: set[int] = set()
-    matches: list[tuple[int, int, float]] = []
+    matches: list[_SpanMatch] = []
     for value, g_idx, p_idx in candidates:
         if g_idx in used_g or p_idx in used_p:
             continue
         used_g.add(g_idx)
         used_p.add(p_idx)
-        matches.append((g_idx, p_idx, value))
+        matches.append(_SpanMatch(gold_index=g_idx, pred_index=p_idx, iou=value))
     return matches
 
 
-def _prf(n_match: int, n_pred: int, n_gold: int) -> tuple[float, float, float]:
+def _precision_recall_f1(
+    n_match: int, n_pred: int, n_gold: int
+) -> tuple[float, float, float]:
     precision = n_match / n_pred if n_pred else 0.0
     recall = n_match / n_gold if n_gold else 0.0
     f1 = (
@@ -271,29 +292,38 @@ def _prf(n_match: int, n_pred: int, n_gold: int) -> tuple[float, float, float]:
     return precision, recall, f1
 
 
+def _index_spans_by_tag(spans: tuple[Span, ...]) -> dict[str, list[int]]:
+    by_tag: dict[str, list[int]] = defaultdict(list)
+    for idx, span in enumerate(spans):
+        by_tag[span.tag].append(idx)
+    return by_tag
+
+
+def _match_counts_by_tag(
+    gold: tuple[Span, ...], matches: list[_SpanMatch]
+) -> dict[str, int]:
+    counts: dict[str, int] = defaultdict(int)
+    for match in matches:
+        counts[gold[match.gold_index].tag] += 1
+    return counts
+
+
 def _per_tag_scores(
     gold: tuple[Span, ...],
     pred: tuple[Span, ...],
-    matches: list[tuple[int, int, float]],
+    matches: list[_SpanMatch],
 ) -> dict[str, TagScore]:
     tags = {span.tag for span in gold} | {span.tag for span in pred}
-    gold_by_tag: dict[str, list[int]] = defaultdict(list)
-    pred_by_tag: dict[str, list[int]] = defaultdict(list)
-    for idx, span in enumerate(gold):
-        gold_by_tag[span.tag].append(idx)
-    for idx, span in enumerate(pred):
-        pred_by_tag[span.tag].append(idx)
-
-    n_match_by_tag: dict[str, int] = defaultdict(int)
-    for g_idx, _p_idx, _iou in matches:
-        n_match_by_tag[gold[g_idx].tag] += 1
+    gold_by_tag = _index_spans_by_tag(gold)
+    pred_by_tag = _index_spans_by_tag(pred)
+    n_match_by_tag = _match_counts_by_tag(gold, matches)
 
     per_tag: dict[str, TagScore] = {}
     for tag in sorted(tags):
         n_gold = len(gold_by_tag[tag])
         n_pred = len(pred_by_tag[tag])
         n_match = n_match_by_tag[tag]
-        precision, recall, f1 = _prf(n_match, n_pred, n_gold)
+        precision, recall, f1 = _precision_recall_f1(n_match, n_pred, n_gold)
         per_tag[tag] = TagScore(
             precision=precision,
             recall=recall,

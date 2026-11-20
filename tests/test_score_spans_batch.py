@@ -5,6 +5,7 @@ from dataclasses import is_dataclass
 import pytest
 
 from buddhist_eval import (
+    BuddhistEvalError,
     Document,
     EmptyInputError,
     InvalidSpanError,
@@ -164,13 +165,14 @@ def test_invalid_span_on_missing_predicted_doc_raises() -> None:
 
 @pytest.mark.parametrize("threshold", [0.0, -0.1, 1.1, 50])
 def test_out_of_range_threshold_raises(threshold: float) -> None:
-    """iou_threshold outside (0, 1] raises InvalidSpanError."""
+    """iou_threshold outside (0, 1] raises BuddhistEvalError (not InvalidSpanError)."""
     text = "abc"
     golds = {"d1": Document(text=text, spans=())}
     predictions = {"d1": Document(text=text, spans=())}
 
-    with pytest.raises(InvalidSpanError):
+    with pytest.raises(BuddhistEvalError) as exc_info:
         score_spans_batch(golds, predictions, iou_threshold=threshold)
+    assert type(exc_info.value) is BuddhistEvalError
 
 
 def test_parity_pooled_match_iou_and_prf_across_documents() -> None:

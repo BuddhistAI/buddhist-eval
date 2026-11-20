@@ -2,6 +2,7 @@
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from typing import Any
 
 import jiwer
 
@@ -46,17 +47,8 @@ def score_cer(reference: str, prediction: str, language: str) -> ErrorRateScore:
     Raises:
         EmptyInputError: If the Reference is empty after stripping.
     """
-    prepared_reference, prepared_prediction = _prepare_pair(
-        reference, prediction, language
-    )
-    output = jiwer.process_characters(prepared_reference, prepared_prediction)
-    return ErrorRateScore(
-        rate=output.cer,
-        substitutions=output.substitutions,
-        deletions=output.deletions,
-        insertions=output.insertions,
-        hits=output.hits,
-        reference_length=output.hits + output.substitutions + output.deletions,
+    return _score_single_pair(
+        reference, prediction, language, jiwer.process_characters, "cer"
     )
 
 
@@ -74,17 +66,8 @@ def score_wer(reference: str, prediction: str, language: str) -> ErrorRateScore:
     Raises:
         EmptyInputError: If the Reference is empty after stripping.
     """
-    prepared_reference, prepared_prediction = _prepare_pair(
-        reference, prediction, language
-    )
-    output = jiwer.process_words(prepared_reference, prepared_prediction)
-    return ErrorRateScore(
-        rate=output.wer,
-        substitutions=output.substitutions,
-        deletions=output.deletions,
-        insertions=output.insertions,
-        hits=output.hits,
-        reference_length=output.hits + output.substitutions + output.deletions,
+    return _score_single_pair(
+        reference, prediction, language, jiwer.process_words, "wer"
     )
 
 
@@ -144,34 +127,69 @@ def _prepare_pair(
     return prepare_text(reference, language), prepare_text(prediction, language)
 
 
-def _score_batch(
+def _build_error_rate_score(rate: float, output: Any) -> ErrorRateScore:
+    """Build an ErrorRateScore from a jiwer process_* output."""
+    return ErrorRateScore(
+        rate=rate,
+        substitutions=output.substitutions,
+        deletions=output.deletions,
+        insertions=output.insertions,
+        hits=output.hits,
+        reference_length=output.hits + output.substitutions + output.deletions,
+    )
+
+
+def _score_single_pair(
+    reference: str,
+    prediction: str,
+    language: str,
+    process: Callable[[str, str], Any],
+    rate_attr: str,
+) -> ErrorRateScore:
+    """Prepare texts, run a jiwer process_* call, and build the score."""
+    prepared_reference, prepared_prediction = _prepare_pair(
+        reference, prediction, language
+    )
+    output = process(prepared_reference, prepared_prediction)
+    return _build_error_rate_score(getattr(output, rate_attr), output)
+
+
+def _batch_id_lists(
     references: Mapping[str, str],
     predictions: Mapping[str, str],
-    language: str,
-    score_one: Callable[[str, str, str], ErrorRateScore],
-) -> ErrorRateBatchScore:
-    """Aggregate per-item scores into mean and corpus rates with id bookkeeping."""
-    if not references:
-        raise EmptyInputError("Batch has no References")
-
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Return skipped empty-Reference ids and extra Prediction ids."""
     skipped_ids = tuple(
         item_id for item_id, text in references.items() if not text.strip()
     )
-    skipped_set = set(skipped_ids)
     extra_ids = tuple(
         item_id for item_id in predictions if item_id not in references
     )
+    return skipped_ids, extra_ids
 
+
+def _score_batch_items(
+    references: Mapping[str, str],
+    predictions: Mapping[str, str],
+    language: str,
+    skipped_ids: tuple[str, ...],
+    score_one: Callable[[str, str, str], ErrorRateScore],
+) -> dict[str, ErrorRateScore]:
+    """Score every non-skipped Reference against its Prediction."""
+    skipped_set = set(skipped_ids)
     items: dict[str, ErrorRateScore] = {}
     for item_id, reference in references.items():
         if item_id in skipped_set:
             continue
         prediction = predictions.get(item_id, "")
         items[item_id] = score_one(reference, prediction, language)
+    return items
 
-    if not items:
-        raise EmptyInputError("Batch has no scorable items after skipping")
 
+def _aggregate_batch_rates(
+    items: Mapping[str, ErrorRateScore],
+) -> tuple[float, float]:
+    """Compute unrounded mean and corpus rates from per-item scores."""
     rates = [score.rate for score in items.values()]
     mean = sum(rates) / len(rates)
     total_edits = sum(
@@ -182,7 +200,27 @@ def _score_batch(
         score.reference_length for score in items.values()
     )
     corpus = total_edits / total_reference_length
+    return mean, corpus
 
+
+def _score_batch(
+    references: Mapping[str, str],
+    predictions: Mapping[str, str],
+    language: str,
+    score_one: Callable[[str, str, str], ErrorRateScore],
+) -> ErrorRateBatchScore:
+    """Aggregate per-item scores into mean and corpus rates with id bookkeeping."""
+    if not references:
+        raise EmptyInputError("Batch has no References")
+
+    skipped_ids, extra_ids = _batch_id_lists(references, predictions)
+    items = _score_batch_items(
+        references, predictions, language, skipped_ids, score_one
+    )
+    if not items:
+        raise EmptyInputError("Batch has no scorable items after skipping")
+
+    mean, corpus = _aggregate_batch_rates(items)
     return ErrorRateBatchScore(
         mean=mean,
         corpus=corpus,
