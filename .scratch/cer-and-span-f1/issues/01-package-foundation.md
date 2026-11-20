@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] The distribution is named `buddhist-eval`, the import package `buddhist_eval`, and the version is `0.1.0`, with `pyproject.toml` as the only source of metadata. Project URLs and the description no longer point at the template.
 - [ ] Python 3.10 or later is required, and the mypy setting is raised to match.
