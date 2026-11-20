@@ -15,3 +15,7 @@ class MisalignedTextsError(BuddhistEvalError):
 
 class InvalidSpanError(BuddhistEvalError):
     """Raised when a Span is out of range or inverted."""
+
+
+class MalformedEvalAIFileError(BuddhistEvalError):
+    """Raised when an EvalAI JSON file is invalid or inconsistently structured."""
