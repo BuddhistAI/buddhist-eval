@@ -4,7 +4,7 @@
 
 **Blocked by:** 05 (single-document span scoring).
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] `score_spans_batch` is exported from `buddhist_eval`.
 - [ ] The batch result holds the pooled precision, recall and F1, `n_gold`, `n_pred` and `n_match`, the mean IoU over all Matches, a pooled per-Tag breakdown, and `extra_ids`.
