@@ -4,12 +4,16 @@
 
 **Blocked by:** 01 (package foundation).
 
-**Status:** claimed
+**Status:** resolved
 
-- [ ] `score_cer` and `score_wer` are exported from `buddhist_eval` and take a required `language`.
-- [ ] Text preparation strips leading and trailing whitespace, then converts to Wylie with `pyewts` only for `"bo"`.
-- [ ] Both return an `ErrorRateScore`, a frozen dataclass shared by CER and WER, with the unrounded rate, substitutions, deletions, insertions, hits and Reference length (characters for CER, words for WER).
-- [ ] An empty Prediction, after stripping, scores a rate of 1.0, with every Reference unit counted as a deletion.
-- [ ] An empty Reference, after stripping, raises the package's empty-input error.
-- [ ] Parity test: on fixed Tibetan pairs, the rates equal `evaluate`'s `cer` and `wer` on `pyewts` Wylie. The expected values are computed once and stored as fixtures, so `evaluate` is not a test dependency.
-- [ ] Behaviour tests: a non-Tibetan language passes through unchanged, a single wrong syllable gives the expected edit counts, and the empty-Prediction and empty-Reference cases behave as above.
+- [x] `score_cer` and `score_wer` are exported from `buddhist_eval` and take a required `language`.
+- [x] Text preparation strips leading and trailing whitespace, then converts to Wylie with `pyewts` only for `"bo"`.
+- [x] Both return an `ErrorRateScore`, a frozen dataclass shared by CER and WER, with the unrounded rate, substitutions, deletions, insertions, hits and Reference length (characters for CER, words for WER).
+- [x] An empty Prediction, after stripping, scores a rate of 1.0, with every Reference unit counted as a deletion.
+- [x] An empty Reference, after stripping, raises the package's empty-input error.
+- [x] Parity test: on fixed Tibetan pairs, the rates equal `evaluate`'s `cer` and `wer` on `pyewts` Wylie. The expected values are computed once and stored as fixtures, so `evaluate` is not a test dependency.
+- [x] Behaviour tests: a non-Tibetan language passes through unchanged, a single wrong syllable gives the expected edit counts, and the empty-Prediction and empty-Reference cases behave as above.
+
+## Comments
+
+- Merged via `impl/02-score-cer-wer-single` at a229ad5.

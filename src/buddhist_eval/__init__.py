@@ -1,5 +1,6 @@
 """buddhist-eval: CER, WER and Span IoU-F1 scoring for Buddhist text pipelines."""
 
+from buddhist_eval.core.error_rates import ErrorRateScore, score_cer, score_wer
 from buddhist_eval.core.spans import (
     Document,
     Span,
@@ -20,11 +21,14 @@ __all__ = [
     "BuddhistEvalError",
     "Document",
     "EmptyInputError",
+    "ErrorRateScore",
     "InvalidSpanError",
     "MisalignedTextsError",
     "Span",
     "SpanScore",
     "TagScore",
+    "score_cer",
     "score_spans",
+    "score_wer",
     "__version__",
 ]
