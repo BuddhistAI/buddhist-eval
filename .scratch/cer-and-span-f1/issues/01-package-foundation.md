@@ -4,13 +4,17 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** claimed
+**Status:** resolved
 
-- [ ] The distribution is named `buddhist-eval`, the import package `buddhist_eval`, and the version is `0.1.0`, with `pyproject.toml` as the only source of metadata. Project URLs and the description no longer point at the template.
-- [ ] Python 3.10 or later is required, and the mypy setting is raised to match.
-- [ ] `jiwer` and `pyewts` are runtime dependencies. Hugging Face `evaluate` is not.
-- [ ] The src-layout has `core/` and `utils/` subpackages. `__init__.py` holds only `__version__` and re-exports.
-- [ ] There is one package-level base error, with subclasses for empty input, misaligned texts and invalid Spans, all exported from `buddhist_eval`.
-- [ ] The template's example module and its test are deleted.
-- [ ] A smoke test checks that `buddhist_eval.__version__ == "0.1.0"` and that the error classes are importable and share the base class.
-- [ ] CI passes.
+- [x] The distribution is named `buddhist-eval`, the import package `buddhist_eval`, and the version is `0.1.0`, with `pyproject.toml` as the only source of metadata. Project URLs and the description no longer point at the template.
+- [x] Python 3.10 or later is required, and the mypy setting is raised to match.
+- [x] `jiwer` and `pyewts` are runtime dependencies. Hugging Face `evaluate` is not.
+- [x] The src-layout has `core/` and `utils/` subpackages. `__init__.py` holds only `__version__` and re-exports.
+- [x] There is one package-level base error, with subclasses for empty input, misaligned texts and invalid Spans, all exported from `buddhist_eval`.
+- [x] The template's example module and its test are deleted.
+- [x] A smoke test checks that `buddhist_eval.__version__ == "0.1.0"` and that the error classes are importable and share the base class.
+- [x] CI passes.
+
+## Comments
+
+- Merged via `impl/01-package-foundation` at ab3b980.
