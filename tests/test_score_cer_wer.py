@@ -28,6 +28,18 @@ def test_score_cer_whitespace_only_reference_raises_empty_input_error() -> None:
         score_cer("   \n\t  ", "anything", language="en")
 
 
+def test_score_cer_tibetan_reference_empty_after_wylie_raises() -> None:
+    """A tsek-only Tibetan Reference becomes whitespace after Wylie and raises."""
+    with pytest.raises(EmptyInputError):
+        score_cer("་", "བོད", language="bo")
+
+
+def test_score_wer_tibetan_reference_empty_after_wylie_raises() -> None:
+    """A tsek-only Tibetan Reference becomes whitespace after Wylie and raises for WER."""
+    with pytest.raises(EmptyInputError):
+        score_wer("་", "བོད", language="bo")
+
+
 def test_score_cer_empty_prediction_is_all_deletions() -> None:
     """An empty Prediction scores CER 1.0 with every Reference character deleted."""
     result = score_cer("abcd", "", language="en")

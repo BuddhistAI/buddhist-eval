@@ -113,6 +113,23 @@ def test_score_cer_batch_all_skipped_raises_empty_input_error() -> None:
         score_cer_batch({"a": "", "b": "  "}, {"a": "x", "b": "y"}, language="en")
 
 
+def test_score_cer_batch_skips_tibetan_reference_empty_after_wylie() -> None:
+    """A tsek-only Tibetan Reference is skipped so corpus never divides by zero."""
+    references = {"keep": "བོད་ཡིག", "empty_wylie": "་"}
+    predictions = {"keep": "བོད་ཡིག", "empty_wylie": "བོད"}
+    result = score_cer_batch(references, predictions, language="bo")
+    assert result.mean == 0.0
+    assert result.corpus == 0.0
+    assert result.skipped_ids == ("empty_wylie",)
+    assert set(result.items) == {"keep"}
+
+
+def test_score_cer_batch_all_empty_after_wylie_raises_empty_input_error() -> None:
+    """A batch where every Reference is empty after Wylie raises EmptyInputError."""
+    with pytest.raises(EmptyInputError):
+        score_cer_batch({"a": "་", "b": "་་"}, {"a": "བོད", "b": "ཡིག"}, language="bo")
+
+
 def test_score_wer_batch_missing_prediction_scores_as_empty() -> None:
     """A missing Prediction yields WER 1.0 with all Reference words deleted."""
     references = {"a": "one two three"}

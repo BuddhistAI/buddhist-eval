@@ -115,15 +115,27 @@ def score_wer_batch(
     return _score_batch(references, predictions, language, score_wer)
 
 
+def _is_empty_reference(text: str, language: str) -> bool:
+    """Return True when a Reference is empty after strip or after preparation.
+
+    Tibetan can strip to non-empty text yet become whitespace-only after Wylie
+    (for example a lone tsek), which jiwer treats as zero Reference length.
+    """
+    if not text.strip():
+        return True
+    return not prepare_text(text, language).strip()
+
+
 def _prepare_pair(
     reference: str, prediction: str, language: str
 ) -> tuple[str, str]:
     """Strip and optionally Wylie-convert both texts; reject empty References.
 
-    Emptiness is decided after stripping, before Wylie conversion.
+    Emptiness is decided after stripping and again after preparation, so a
+    Tibetan Reference that becomes whitespace-only under Wylie is rejected.
     """
-    if not reference.strip():
-        raise EmptyInputError("Reference is empty after stripping")
+    if _is_empty_reference(reference, language):
+        raise EmptyInputError("Reference is empty after preparation")
     return prepare_text(reference, language), prepare_text(prediction, language)
 
 
@@ -157,10 +169,17 @@ def _score_single_pair(
 def _batch_id_lists(
     references: Mapping[str, str],
     predictions: Mapping[str, str],
+    language: str,
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Return skipped empty-Reference ids and extra Prediction ids."""
+    """Return skipped empty-Reference ids and extra Prediction ids.
+
+    Skips References that are empty after stripping or after preparation
+    (including Tibetan that becomes whitespace-only under Wylie).
+    """
     skipped_ids = tuple(
-        item_id for item_id, text in references.items() if not text.strip()
+        item_id
+        for item_id, text in references.items()
+        if _is_empty_reference(text, language)
     )
     extra_ids = tuple(
         item_id for item_id in predictions if item_id not in references
@@ -189,7 +208,11 @@ def _score_batch_items(
 def _aggregate_batch_rates(
     items: Mapping[str, ErrorRateScore],
 ) -> tuple[float, float]:
-    """Compute unrounded mean and corpus rates from per-item scores."""
+    """Compute unrounded mean and corpus rates from per-item scores.
+
+    Raises:
+        EmptyInputError: If total Reference length across items is zero.
+    """
     rates = [score.rate for score in items.values()]
     mean = sum(rates) / len(rates)
     total_edits = sum(
@@ -199,6 +222,8 @@ def _aggregate_batch_rates(
     total_reference_length = sum(
         score.reference_length for score in items.values()
     )
+    if total_reference_length == 0:
+        raise EmptyInputError("Batch has zero total Reference length")
     corpus = total_edits / total_reference_length
     return mean, corpus
 
@@ -213,7 +238,7 @@ def _score_batch(
     if not references:
         raise EmptyInputError("Batch has no References")
 
-    skipped_ids, extra_ids = _batch_id_lists(references, predictions)
+    skipped_ids, extra_ids = _batch_id_lists(references, predictions, language)
     items = _score_batch_items(
         references, predictions, language, skipped_ids, score_one
     )
