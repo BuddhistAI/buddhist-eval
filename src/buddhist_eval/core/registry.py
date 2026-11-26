@@ -1,7 +1,8 @@
 """Registry of every Scorer, looked up by name with one ``score`` signature.
 
-Each Scorer wraps a batch metric. Predictions and references are mappings
-from item id to decoded JSON values; ``Scorer.score`` returns one float.
+Each Scorer wraps a batch metric from ``buddhist_eval.core`` without changing
+its numbers. Scorer names are immutable: a changed computation is registered
+under a new name (see docs/adr/0002-scorer-names-are-immutable.md).
 """
 
 from __future__ import annotations
@@ -9,28 +10,17 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from buddhist_eval.core.error_rates import (
-    ErrorRateBatchScore,
-    score_cer_batch,
-    score_wer_batch,
-)
+from buddhist_eval.core.error_rates import score_cer_batch, score_wer_batch
 from buddhist_eval.core.mcq import score_mcq
-from buddhist_eval.core.scorer import Parameter, Scorer, SortDirection
+from buddhist_eval.core.scorer import Direction, Parameter, Scorer
 from buddhist_eval.core.spans import Document, score_spans_batch
-from buddhist_eval.core.toc import score_toc_batch
-from buddhist_eval.errors import (
-    InvalidPredictionError,
-    InvalidReferenceError,
-    UnknownScorerError,
-)
+from buddhist_eval.core.toc import TocPassage, score_toc_batch
+from buddhist_eval.errors import UnknownScorerError
 from buddhist_eval.utils.payloads import (
-    PayloadError,
-    parse_document,
-    parse_mapping,
+    parse_gold_headings,
     parse_predicted_headings,
     parse_spans,
     parse_text,
-    parse_toc_passage,
 )
 
 _TEXT_SCHEMA: dict[str, Any] = {"type": "string"}
@@ -42,7 +32,7 @@ _SPAN_SCHEMA: dict[str, Any] = {
         "end": {
             "type": "integer",
             "minimum": 0,
-            "description": "Inclusive end offset.",
+            "description": "Inclusive end offset in the Input passage text.",
         },
         "tag": {"type": "string"},
     },
@@ -50,12 +40,6 @@ _SPAN_SCHEMA: dict[str, Any] = {
 }
 
 _SPANS_SCHEMA: dict[str, Any] = {"type": "array", "items": _SPAN_SCHEMA}
-
-_DOCUMENT_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {"text": {"type": "string"}, "spans": _SPANS_SCHEMA},
-    "required": ["text", "spans"],
-}
 
 _PREDICTED_HEADINGS_SCHEMA: dict[str, Any] = {
     "type": "array",
@@ -72,23 +56,29 @@ _PREDICTED_HEADINGS_SCHEMA: dict[str, Any] = {
     },
 }
 
-_TOC_PASSAGE_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "text": {"type": "string"},
-        "headings": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "depth": {"type": "integer", "minimum": 1},
-                    "start": {"type": "integer", "minimum": 0},
-                },
-                "required": ["depth", "start"],
+_GOLD_HEADINGS_SCHEMA: dict[str, Any] = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "depth": {"type": "integer", "minimum": 1},
+            "start": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Character offset in the Input passage text.",
             },
         },
+        "required": ["depth", "start"],
     },
-    "required": ["text", "headings"],
+}
+
+_PASSAGE_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "string",
+    "description": "Passage text; offsets in references and predictions index into it.",
+}
+
+_IGNORED_INPUT_SCHEMA: dict[str, Any] = {
+    "description": "Not read by this Scorer; any JSON value.",
 }
 
 _LANGUAGE = Parameter(
@@ -96,14 +86,6 @@ _LANGUAGE = Parameter(
     kind=str,
     default="bo",
     description='ISO 639-1 code; "bo" converts both texts to Wylie before scoring.',
-)
-
-_AGGREGATE = Parameter(
-    name="aggregate",
-    kind=str,
-    default="mean",
-    choices=("mean", "corpus"),
-    description='"mean" averages per-item rates (EvalAI); "corpus" is total edits over total Reference length.',
 )
 
 _IOU_THRESHOLD = Parameter(
@@ -123,130 +105,130 @@ _TOLERANCE = Parameter(
     description="Maximum character distance between a located Anchor and a Gold Heading start.",
 )
 
-
-def _texts(values: Mapping[str, Any], side: str, error: PayloadError) -> dict[str, str]:
-    return parse_mapping(values, parse_text, side, error)
+Values = Mapping[str, Any]
 
 
-def _pick_rate(batch: ErrorRateBatchScore, aggregate: str) -> float:
-    return batch.mean if aggregate == "mean" else batch.corpus
-
-
-def _score_cer(
-    predictions: Mapping[str, Any],
-    references: Mapping[str, Any],
-    params: Mapping[str, Any],
-) -> float:
+def _compute_cer(
+    inputs: Values, references: Values, predictions: Values, params: Values
+) -> tuple[float, Any]:
     batch = score_cer_batch(
-        _texts(references, "reference", InvalidReferenceError),
-        _texts(predictions, "prediction", InvalidPredictionError),
-        language=params["language"],
+        dict(references), dict(predictions), language=params["language"]
     )
-    return _pick_rate(batch, params["aggregate"])
+    return batch.mean, batch
 
 
-def _score_wer(
-    predictions: Mapping[str, Any],
-    references: Mapping[str, Any],
-    params: Mapping[str, Any],
-) -> float:
+def _compute_wer(
+    inputs: Values, references: Values, predictions: Values, params: Values
+) -> tuple[float, Any]:
     batch = score_wer_batch(
-        _texts(references, "reference", InvalidReferenceError),
-        _texts(predictions, "prediction", InvalidPredictionError),
-        language=params["language"],
+        dict(references), dict(predictions), language=params["language"]
     )
-    return _pick_rate(batch, params["aggregate"])
+    return batch.mean, batch
 
 
-def _score_span_f1(
-    predictions: Mapping[str, Any],
-    references: Mapping[str, Any],
-    params: Mapping[str, Any],
-) -> float:
-    golds = parse_mapping(
-        references, parse_document, "reference", InvalidReferenceError
-    )
-    spans = parse_mapping(
-        predictions, parse_spans, "prediction", InvalidPredictionError
-    )
-    predicted = {
-        item_id: Document(text=golds[item_id].text, spans=item_spans)
-        for item_id, item_spans in spans.items()
-        if item_id in golds
+def _compute_span_f1(
+    inputs: Values, references: Values, predictions: Values, params: Values
+) -> tuple[float, Any]:
+    golds = {
+        item_id: Document(text=inputs[item_id], spans=spans)
+        for item_id, spans in references.items()
     }
-    return score_spans_batch(golds, predicted, iou_threshold=params["iou_threshold"]).f1
+    predicted = {
+        item_id: Document(text=inputs.get(item_id, ""), spans=spans)
+        for item_id, spans in predictions.items()
+    }
+    batch = score_spans_batch(golds, predicted, iou_threshold=params["iou_threshold"])
+    return batch.f1, batch
 
 
-def _score_toc(
-    predictions: Mapping[str, Any],
-    references: Mapping[str, Any],
-    params: Mapping[str, Any],
-) -> float:
-    passages = parse_mapping(
-        references, parse_toc_passage, "reference", InvalidReferenceError
-    )
-    predicted = parse_mapping(
-        predictions, parse_predicted_headings, "prediction", InvalidPredictionError
-    )
-    return score_toc_batch(passages, predicted, tolerance=params["tolerance"]).mean
+def _compute_toc(
+    inputs: Values, references: Values, predictions: Values, params: Values
+) -> tuple[float, Any]:
+    passages = {
+        item_id: TocPassage(text=inputs[item_id], headings=headings)
+        for item_id, headings in references.items()
+    }
+    batch = score_toc_batch(passages, dict(predictions), tolerance=params["tolerance"])
+    return batch.mean, batch
 
 
-def _score_mcq(
-    predictions: Mapping[str, Any],
-    references: Mapping[str, Any],
-    params: Mapping[str, Any],
-) -> float:
-    answer_key = _texts(references, "reference", InvalidReferenceError)
-    return score_mcq(
-        answer_key, _texts(predictions, "prediction", InvalidPredictionError)
-    ).accuracy
+def _compute_mcq(
+    inputs: Values, references: Values, predictions: Values, params: Values
+) -> tuple[float, Any]:
+    result = score_mcq(dict(references), dict(predictions))
+    return result.accuracy, result
 
 
 _SCORERS: tuple[Scorer, ...] = (
     Scorer(
         name="cer",
         label="Character Error Rate (CER)",
-        direction=SortDirection.LOWER_IS_BETTER,
-        parameters=(_LANGUAGE, _AGGREGATE),
-        prediction_schema=_TEXT_SCHEMA,
+        direction=Direction.LOWER_IS_BETTER,
+        parameters=(_LANGUAGE,),
+        input_schema=_IGNORED_INPUT_SCHEMA,
         reference_schema=_TEXT_SCHEMA,
-        score_function=_score_cer,
+        prediction_schema=_TEXT_SCHEMA,
+        sample_prediction="",
+        parse_input=None,
+        parse_reference=parse_text,
+        parse_prediction=parse_text,
+        compute=_compute_cer,
     ),
     Scorer(
         name="wer",
         label="Word Error Rate (WER)",
-        direction=SortDirection.LOWER_IS_BETTER,
-        parameters=(_LANGUAGE, _AGGREGATE),
-        prediction_schema=_TEXT_SCHEMA,
+        direction=Direction.LOWER_IS_BETTER,
+        parameters=(_LANGUAGE,),
+        input_schema=_IGNORED_INPUT_SCHEMA,
         reference_schema=_TEXT_SCHEMA,
-        score_function=_score_wer,
+        prediction_schema=_TEXT_SCHEMA,
+        sample_prediction="",
+        parse_input=None,
+        parse_reference=parse_text,
+        parse_prediction=parse_text,
+        compute=_compute_wer,
     ),
     Scorer(
         name="span_f1",
         label="Span IoU F1",
-        direction=SortDirection.HIGHER_IS_BETTER,
+        direction=Direction.HIGHER_IS_BETTER,
         parameters=(_IOU_THRESHOLD,),
+        input_schema=_PASSAGE_INPUT_SCHEMA,
+        reference_schema=_SPANS_SCHEMA,
         prediction_schema=_SPANS_SCHEMA,
-        reference_schema=_DOCUMENT_SCHEMA,
-        score_function=_score_span_f1,
+        sample_prediction=[],
+        parse_input=parse_text,
+        parse_reference=parse_spans,
+        parse_prediction=parse_spans,
+        compute=_compute_span_f1,
     ),
     Scorer(
         name="toc",
         label="TOC heading score",
-        direction=SortDirection.HIGHER_IS_BETTER,
+        direction=Direction.HIGHER_IS_BETTER,
         parameters=(_TOLERANCE,),
+        input_schema=_PASSAGE_INPUT_SCHEMA,
+        reference_schema=_GOLD_HEADINGS_SCHEMA,
         prediction_schema=_PREDICTED_HEADINGS_SCHEMA,
-        reference_schema=_TOC_PASSAGE_SCHEMA,
-        score_function=_score_toc,
+        sample_prediction=[],
+        parse_input=parse_text,
+        parse_reference=parse_gold_headings,
+        parse_prediction=parse_predicted_headings,
+        compute=_compute_toc,
     ),
     Scorer(
         name="mcq_accuracy",
         label="Multiple-choice accuracy",
-        direction=SortDirection.HIGHER_IS_BETTER,
+        direction=Direction.HIGHER_IS_BETTER,
         parameters=(),
-        prediction_schema=_TEXT_SCHEMA,
+        input_schema=_IGNORED_INPUT_SCHEMA,
         reference_schema=_TEXT_SCHEMA,
-        score_function=_score_mcq,
+        prediction_schema=_TEXT_SCHEMA,
+        sample_prediction="",
+        parse_input=None,
+        parse_reference=parse_text,
+        parse_prediction=parse_text,
+        compute=_compute_mcq,
     ),
 )
 

@@ -1,12 +1,12 @@
-"""Parse decoded JSON prediction and reference values into scorer input types."""
+"""Parse decoded JSON Input, Reference and Prediction values into metric types."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from typing import Any, TypeVar
 
-from buddhist_eval.core.spans import Document, Span
-from buddhist_eval.core.toc import Heading, PredictedHeading, TocPassage
+from buddhist_eval.core.spans import Span
+from buddhist_eval.core.toc import Heading, PredictedHeading
 from buddhist_eval.errors import BuddhistEvalError
 
 T = TypeVar("T")
@@ -22,7 +22,7 @@ def parse_mapping(
     Args:
         values: Mapping from item id to a decoded JSON value.
         parse: Parser applied to each value.
-        side: ``"prediction"`` or ``"reference"``, used in error messages.
+        side: ``"input"``, ``"reference"`` or ``"prediction"``, used in error messages.
         error: Exception class raised for a malformed value.
 
     Returns:
@@ -57,19 +57,6 @@ def parse_spans(value: Any, where: str, error: PayloadError) -> tuple[Span, ...]
     )
 
 
-def parse_document(value: Any, where: str, error: PayloadError) -> Document:
-    """Parse a ``{text, spans}`` object into a Document.
-
-    Raises:
-        BuddhistEvalError: ``error`` if the object or any span is malformed.
-    """
-    obj = _require_object(value, where, error, ("text", "spans"))
-    return Document(
-        text=parse_text(obj["text"], f"{where}.text", error),
-        spans=parse_spans(obj["spans"], f"{where}.spans", error),
-    )
-
-
 def parse_predicted_headings(
     value: Any, where: str, error: PayloadError
 ) -> tuple[PredictedHeading, ...]:
@@ -91,17 +78,18 @@ def parse_predicted_headings(
     return tuple(headings)
 
 
-def parse_toc_passage(value: Any, where: str, error: PayloadError) -> TocPassage:
-    """Parse a ``{text, headings: [{depth, start}]}`` object into a TocPassage.
+def parse_gold_headings(
+    value: Any, where: str, error: PayloadError
+) -> tuple[Heading, ...]:
+    """Parse a list of ``{depth, start}`` objects into Gold Headings.
 
     Raises:
-        BuddhistEvalError: ``error`` if the object or any heading is malformed.
+        BuddhistEvalError: ``error`` if the list or any heading is malformed.
     """
-    obj = _require_object(value, where, error, ("text", "headings"))
-    items = _require_list(obj["headings"], f"{where}.headings", error)
+    items = _require_list(value, where, error)
     headings = []
     for i, item in enumerate(items):
-        at = f"{where}.headings[{i}]"
+        at = f"{where}[{i}]"
         heading = _require_object(item, at, error, ("depth", "start"))
         headings.append(
             Heading(
@@ -109,9 +97,7 @@ def parse_toc_passage(value: Any, where: str, error: PayloadError) -> TocPassage
                 start=_require_int(heading["start"], f"{at}.start", error),
             )
         )
-    return TocPassage(
-        text=parse_text(obj["text"], f"{where}.text", error), headings=tuple(headings)
-    )
+    return tuple(headings)
 
 
 def _parse_span(item: Any, where: str, error: PayloadError) -> Span:

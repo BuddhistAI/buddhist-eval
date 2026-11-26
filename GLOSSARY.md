@@ -69,10 +69,18 @@ The share of Answer Key questions whose predicted choice equals the correct choi
 
 ## Registry
 
+**Input**:
+The item a model is run on, keyed by id. Span F1 and TOC Scorers read the passage text from it; the other Scorers ignore it.
+_Avoid_: Sample, example, test case
+
 **Scorer**:
-A registered metric with a name, a display label, a Direction, optional parameters, schemas for one prediction and one reference value, and a `score` call that returns one float.
-_Avoid_: Evaluator, metric plugin
+A registered metric with an immutable name, a display label, a Direction, parameters with defaults, and schemas for one Input, Reference and Prediction value. Its `score` call takes Inputs, References and Predictions keyed by id and returns a Headline Metric plus details. A changed computation gets a new name.
+_Avoid_: Evaluator, metric plugin, metric (for the registered object)
+
+**Headline Metric**:
+The single unrounded number a Scorer declares for ranking, for example the mean CER. Every other number the Scorer returns is a detail.
+_Avoid_: Score (alone), primary metric
 
 **Direction**:
-Whether a lower or a higher Scorer value is better. A leaderboard sorts ascending for lower-is-better (CER, WER) and descending for higher-is-better.
+Whether a lower or a higher Headline Metric ranks first: `lower_is_better` (CER, WER) or `higher_is_better` (span F1, TOC, MCQ accuracy).
 _Avoid_: Sort order, polarity

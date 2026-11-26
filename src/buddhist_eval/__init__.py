@@ -10,7 +10,7 @@ from buddhist_eval.core.error_rates import (
 )
 from buddhist_eval.core.mcq import McqScore, score_mcq
 from buddhist_eval.core.registry import get_scorer, list_scorers
-from buddhist_eval.core.scorer import Parameter, Scorer, SortDirection
+from buddhist_eval.core.scorer import Direction, Parameter, Scorer, ScoreResult
 from buddhist_eval.core.spans import (
     Document,
     Span,
@@ -32,38 +32,51 @@ from buddhist_eval.core.toc import (
 from buddhist_eval.errors import (
     BuddhistEvalError,
     EmptyInputError,
+    IdMismatchError,
     InvalidHeadingError,
+    InvalidInputError,
     InvalidParameterError,
     InvalidPredictionError,
     InvalidReferenceError,
     InvalidSpanError,
     MalformedEvalAIFileError,
+    MalformedJsonlError,
     MisalignedTextsError,
     UnknownScorerError,
 )
 from buddhist_eval.utils.evalai import load_evalai_json
+from buddhist_eval.utils.jsonl import (
+    load_ground_truth,
+    load_inputs,
+    load_media_paths,
+    load_predictions,
+)
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "BuddhistEvalError",
+    "Direction",
     "Document",
     "EmptyInputError",
     "ErrorRateBatchScore",
     "ErrorRateScore",
     "Heading",
+    "IdMismatchError",
     "InvalidHeadingError",
+    "InvalidInputError",
     "InvalidParameterError",
     "InvalidPredictionError",
     "InvalidReferenceError",
     "InvalidSpanError",
     "MalformedEvalAIFileError",
+    "MalformedJsonlError",
     "McqScore",
     "MisalignedTextsError",
     "Parameter",
     "PredictedHeading",
+    "ScoreResult",
     "Scorer",
-    "SortDirection",
     "Span",
     "SpanBatchScore",
     "SpanScore",
@@ -75,6 +88,10 @@ __all__ = [
     "get_scorer",
     "list_scorers",
     "load_evalai_json",
+    "load_ground_truth",
+    "load_inputs",
+    "load_media_paths",
+    "load_predictions",
     "score_cer",
     "score_cer_batch",
     "score_mcq",
