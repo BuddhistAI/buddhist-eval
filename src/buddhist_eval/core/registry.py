@@ -12,7 +12,13 @@ from typing import Any
 
 from buddhist_eval.core.error_rates import score_cer_batch, score_wer_batch
 from buddhist_eval.core.mcq import score_mcq
-from buddhist_eval.core.scorer import Direction, Parameter, Scorer
+from buddhist_eval.core.scorer import (
+    Direction,
+    DisplayFormat,
+    DisplayStyle,
+    Parameter,
+    Scorer,
+)
 from buddhist_eval.core.spans import Document, score_spans_batch
 from buddhist_eval.core.toc import TocPassage, score_toc_batch
 from buddhist_eval.errors import UnknownScorerError
@@ -105,6 +111,11 @@ _TOLERANCE = Parameter(
     description="Maximum character distance between a located Anchor and a Gold Heading start.",
 )
 
+_PERCENT_2 = DisplayFormat(DisplayStyle.PERCENT, 2)
+_DECIMAL_3 = DisplayFormat(DisplayStyle.DECIMAL, 3)
+# Accuracy reads naturally as a share of questions, so it is shown as a percent.
+_PERCENT_1 = DisplayFormat(DisplayStyle.PERCENT, 1)
+
 Values = Mapping[str, Any]
 
 
@@ -173,6 +184,7 @@ _SCORERS: tuple[Scorer, ...] = (
         parse_reference=parse_text,
         parse_prediction=parse_text,
         compute=_compute_cer,
+        display_format=_PERCENT_2,
     ),
     Scorer(
         name="wer",
@@ -187,6 +199,7 @@ _SCORERS: tuple[Scorer, ...] = (
         parse_reference=parse_text,
         parse_prediction=parse_text,
         compute=_compute_wer,
+        display_format=_PERCENT_2,
     ),
     Scorer(
         name="span_f1",
@@ -201,6 +214,7 @@ _SCORERS: tuple[Scorer, ...] = (
         parse_reference=parse_spans,
         parse_prediction=parse_spans,
         compute=_compute_span_f1,
+        display_format=_DECIMAL_3,
     ),
     Scorer(
         name="toc",
@@ -215,6 +229,7 @@ _SCORERS: tuple[Scorer, ...] = (
         parse_reference=parse_gold_headings,
         parse_prediction=parse_predicted_headings,
         compute=_compute_toc,
+        display_format=_DECIMAL_3,
     ),
     Scorer(
         name="mcq_accuracy",
@@ -229,6 +244,7 @@ _SCORERS: tuple[Scorer, ...] = (
         parse_reference=parse_text,
         parse_prediction=parse_text,
         compute=_compute_mcq,
+        display_format=_PERCENT_1,
     ),
 )
 

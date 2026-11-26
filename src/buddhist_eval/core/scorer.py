@@ -41,6 +41,29 @@ class Direction(str, Enum):
     HIGHER_IS_BETTER = "higher_is_better"
 
 
+class DisplayStyle(str, Enum):
+    """How a number is shown: as a percentage (0.0123 -> 1.23%) or as a decimal."""
+
+    PERCENT = "percent"
+    DECIMAL = "decimal"
+
+
+@dataclass(frozen=True)
+class DisplayFormat:
+    """How to show a number: a style and how many decimals to keep.
+
+    ``decimals`` counts digits after the point in the shown text, so CER
+    0.01234 as ``DisplayFormat(PERCENT, 2)`` reads "1.23%".
+    """
+
+    style: DisplayStyle
+    decimals: int
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return ``{"style": ..., "decimals": ...}`` as plain JSON values."""
+        return {"style": self.style.value, "decimals": self.decimals}
+
+
 @dataclass(frozen=True)
 class ScoreResult:
     """What ``Scorer.score`` returns.
@@ -157,6 +180,7 @@ class Scorer:
     parse_reference: Parser[Any] = field(repr=False, compare=False)
     parse_prediction: Parser[Any] = field(repr=False, compare=False)
     compute: Compute = field(repr=False, compare=False)
+    display_format: DisplayFormat
 
     @property
     def uses_inputs(self) -> bool:
@@ -296,13 +320,15 @@ class Scorer:
         """Return a JSON-serialisable description for listing endpoints.
 
         Returns:
-            The name, label, direction value, the four JSON Schemas and the
-            placeholder Prediction for ``sample_submission.jsonl``.
+            The name, label, direction value, the Headline Metric's display
+            format, the four JSON Schemas and the placeholder Prediction for
+            ``sample_submission.jsonl``.
         """
         return {
             "name": self.name,
             "label": self.label,
             "direction": self.direction.value,
+            "display_format": self.display_format.to_dict(),
             "parameter_schema": self.parameter_schema,
             "input_schema": deepcopy(dict(self.input_schema)),
             "reference_schema": deepcopy(dict(self.reference_schema)),

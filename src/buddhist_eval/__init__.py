@@ -10,7 +10,14 @@ from buddhist_eval.core.error_rates import (
 )
 from buddhist_eval.core.mcq import McqScore, score_mcq
 from buddhist_eval.core.registry import get_scorer, list_scorers
-from buddhist_eval.core.scorer import Direction, Parameter, Scorer, ScoreResult
+from buddhist_eval.core.scorer import (
+    Direction,
+    DisplayFormat,
+    DisplayStyle,
+    Parameter,
+    Scorer,
+    ScoreResult,
+)
 from buddhist_eval.core.spans import (
     Document,
     Span,
@@ -57,6 +64,8 @@ __version__ = "0.2.0"
 __all__ = [
     "BuddhistEvalError",
     "Direction",
+    "DisplayFormat",
+    "DisplayStyle",
     "Document",
     "EmptyInputError",
     "ErrorRateBatchScore",
