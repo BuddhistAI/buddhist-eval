@@ -49,7 +49,8 @@ Domain terms are defined in [GLOSSARY.md](GLOSSARY.md). The Wylie decision is re
 - `score_toc` and `score_toc_batch` score extracted outline headings by position and depth.
 - `score_mcq` scores multiple-choice answers against an Answer Key and returns accuracy.
 - `load_evalai_json` reads the existing EvalAI file shape into the mapping the batch scorers take.
-- `list_scorers` and `get_scorer` expose every metric through one registry with a shared `score(predictions, references, **params) -> float` call, for the challenge backend.
+- `list_scorers` and `get_scorer` expose every metric as a named Scorer with one `score(inputs, references, predictions, **params)` call that returns a Headline Metric plus JSON details, for the challenge backend.
+- `load_inputs`, `load_ground_truth` and `load_predictions` read the arena's JSONL files.
 
 CER and WER are independent. Calling one never computes the other. Scores are unrounded.
 
@@ -288,41 +289,86 @@ Duplicate filenames, a missing `filename`, a missing text field, or invalid JSON
 
 ## Scorer registry
 
-The challenge backend never calls the metric functions directly. It lists the registered Scorers to fill the scorer dropdown, stores a Scorer's name, params and direction on the challenge, and later scores each submission with `get_scorer(name).score(...)`.
+The challenge backend never calls the metric functions directly. It lists the registered Scorers to fill the scorer dropdown, stores a Scorer's name, params and Direction on the challenge, validates the uploaded files against the Scorer, and scores each submission with `get_scorer(name).score(...)`.
 
 Each `Scorer` has:
 
 | Field | Meaning |
 | --- | --- |
-| `name` | Registry key stored on the challenge, for example `"cer"`. |
+| `name` | Registry key stored on the challenge, for example `"cer"`. Never reused for a different computation. |
 | `label` | Display name for the dropdown. |
-| `direction` | `SortDirection.LOWER_IS_BETTER` or `HIGHER_IS_BETTER`; `.value` is the `challenge.json` string. |
+| `direction` | `Direction.LOWER_IS_BETTER` or `Direction.HIGHER_IS_BETTER`; `.value` is the `challenge.json` string. |
 | `parameter_schema` | JSON Schema for the params object. Every parameter is optional and has a default. |
-| `prediction_schema` | JSON Schema for one prediction value. |
-| `reference_schema` | JSON Schema for one ground-truth value. |
-| `score(predictions, references, **params)` | Returns one unrounded float. |
+| `input_schema` | JSON Schema for one Input value. CER, WER and MCQ accept any value and ignore it. |
+| `reference_schema` | JSON Schema for one Reference value. |
+| `prediction_schema` | JSON Schema for one Prediction value. |
+| `sample_prediction` | A placeholder Prediction of the right shape, for `sample_submission.jsonl`. |
+| `score(inputs, references, predictions, **params)` | Returns a `ScoreResult`. |
+| `validate_ground_truth(inputs, references, **params)` | Checks a challenge before it is saved. |
+| `validate_predictions(inputs, predictions)` | Checks a Predictions File before it is scored. |
+| `describe()` | All of the above as plain JSON, for a listing endpoint. |
 
-`predictions` and `references` map item id to a decoded JSON value. Missing and extra ids are handled as in the underlying metric.
+`inputs`, `references` and `predictions` each map item id to a decoded JSON value. `score` returns a `ScoreResult` with:
 
-| Name | Direction | Params (default) | Prediction | Reference | Returns |
-| --- | --- | --- | --- | --- | --- |
-| `cer` | lower | `language` (`"bo"`), `aggregate` (`"mean"` or `"corpus"`) | string | string | `score_cer_batch` mean or corpus |
-| `wer` | lower | same as `cer` | string | string | `score_wer_batch` mean or corpus |
-| `span_f1` | higher | `iou_threshold` (`0.5`) | `[{start, end, tag}]` | `{text, spans}` | `score_spans_batch` F1 |
-| `toc` | higher | `tolerance` (`3`) | `[{depth, anchor}]` | `{text, headings: [{depth, start}]}` | `score_toc_batch` mean |
-| `mcq_accuracy` | higher | none | string | string | `score_mcq` accuracy |
+- `headline_metric`: the unrounded float a leaderboard ranks by, sorted by `direction`.
+- `details`: the metric's full result object as plain JSON (dicts, lists, numbers, strings). `result.to_dict()` gives both, ready to store.
+
+| Name | Direction | Params (default) | Input | Reference | Prediction | Headline Metric | Details |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `cer` | lower | `language` (`"bo"`) | ignored | string | string | `score_cer_batch` `mean` | `corpus`, per-item `items`, `skipped_ids`, `extra_ids` |
+| `wer` | lower | `language` (`"bo"`) | ignored | string | string | `score_wer_batch` `mean` | same as `cer` |
+| `span_f1` | higher | `iou_threshold` (`0.5`) | passage text | `[{start, end, tag}]` | `[{start, end, tag}]` | `score_spans_batch` `f1` | precision, recall, counts, `per_tag`, `extra_ids` |
+| `toc` | higher | `tolerance` (`3`) | passage text | `[{depth, start}]` | `[{depth, anchor}]` | `score_toc_batch` `mean` | per-passage `items`, `extra_ids` |
+| `mcq_accuracy` | higher | none | ignored | string (the correct choice) | string | `score_mcq` `accuracy` | `n_correct`, `n_total`, `items`, `missing_ids`, `extra_ids` |
+
+For CER and WER the Headline Metric is the per-item `mean`, which matches the EvalAI leaderboard; the length-weighted `corpus` rate is a detail. Span and heading offsets index into the Input's passage text. Each Scorer returns exactly the numbers of the batch function it wraps.
+
+### JSONL files
+
+All arena data is JSONL, one object per line, keyed by a string `id`:
+
+| File | Row | Loader |
+| --- | --- | --- |
+| Inputs | `{"id": ..., "input": <any>, "media": "<path>"}` (`media` optional) | `load_inputs` (id to `input`), `load_media_paths` (id to `media`) |
+| Ground Truth | `{"id": ..., "reference": <value>}` | `load_ground_truth` |
+| Predictions | `{"id": ..., "prediction": <value>}` | `load_predictions` |
+
+Each loader takes a path or an open text or binary stream and returns a dict in file order. Blank lines and a UTF-8 byte-order mark are ignored. Invalid JSON, a row that is not an object, a missing or blank `id`, a duplicate `id`, a missing value key or any other key raises `MalformedJsonlError` naming the line. The loaders check only row structure; the Scorer checks value shapes.
 
 ```python
-from buddhist_eval import get_scorer, list_scorers
+from buddhist_eval import (
+    get_scorer,
+    list_scorers,
+    load_ground_truth,
+    load_inputs,
+    load_predictions,
+)
 
-dropdown = [scorer.describe() for scorer in list_scorers()]   # JSON-ready
+dropdown = [scorer.describe() for scorer in list_scorers()]  # JSON-ready
 
+# Creating a challenge
 cer = get_scorer("cer")
-params = cer.validate_params({"language": "bo"})               # at challenge creation
-score = cer.score({"page-1": "བོད་སྐད"}, {"page-1": "བོད་ཡིག"}, **params)
+params = cer.validate_params({"language": "bo"})  # fills defaults
+inputs = load_inputs("inputs.jsonl")
+references = load_ground_truth("ground_truth.jsonl")
+cer.validate_ground_truth(inputs, references, **params)
+sample = [{"id": i, "prediction": cer.sample_prediction} for i in inputs]
+
+# Scoring a submission
+predictions = load_predictions("predictions.jsonl")
+cer.validate_predictions(inputs, predictions)
+result = cer.score(inputs, references, predictions, **params)
+result.headline_metric  # rank by this, using cer.direction
+result.details["corpus"]  # every other number
 ```
 
-An unregistered name raises `UnknownScorerError`. An unknown or invalid parameter raises `InvalidParameterError`. A value that does not match the prediction or reference schema raises `InvalidPredictionError` or `InvalidReferenceError`, so the backend can tell a bad submission from bad ground truth.
+`validate_ground_truth` requires the Inputs and the Ground Truth to hold exactly the same ids, every value to match its schema, and the Ground Truth to be scorable (for example every Gold Span inside its passage, no blank answer). `validate_predictions` requires exactly one Prediction per Input id, each matching `prediction_schema`.
+
+An unregistered name raises `UnknownScorerError`. An unknown or invalid parameter raises `InvalidParameterError`. Differing id sets raise `IdMismatchError`, whose `missing_ids` and `extra_ids` list them in full. A value that does not match its schema raises `InvalidInputError`, `InvalidReferenceError` or `InvalidPredictionError`, so the backend can tell a bad submission from bad challenge data.
+
+### Scorer names are immutable
+
+A released Scorer name always computes the same thing. A release that changes an existing Scorer's numbers is a breaking change; the new computation is registered under a new name such as `cer_v2`. Challenges record the package version for audit only. See [docs/adr/0002-scorer-names-are-immutable.md](docs/adr/0002-scorer-names-are-immutable.md).
 
 ## Errors
 
@@ -335,10 +381,13 @@ Every failure raises `BuddhistEvalError` or a subclass. Invalid input is never t
 | `InvalidSpanError` | A span is negative, ends before it starts, or runs past the text. |
 | `InvalidHeadingError` | A Gold Heading has a depth below 1 or a start outside its text. |
 | `MalformedEvalAIFileError` | The EvalAI JSON cannot be read into a filename-to-text mapping. |
+| `MalformedJsonlError` | An Inputs, Ground Truth or Predictions JSONL file cannot be read into id-keyed rows. |
 | `UnknownScorerError` | `get_scorer` is given a name that is not registered. |
 | `InvalidParameterError` | A Scorer parameter is unknown, has the wrong type, is not an allowed choice, or is out of range. |
-| `InvalidPredictionError` | A prediction value passed to `Scorer.score` does not match `prediction_schema`. |
-| `InvalidReferenceError` | A reference value passed to `Scorer.score` does not match `reference_schema`. |
+| `IdMismatchError` | Inputs and Ground Truth, or Inputs and Predictions, do not hold exactly the same ids. |
+| `InvalidInputError` | An Input value does not match `input_schema`, or a Scorer that reads Inputs has no Input for a Reference id. |
+| `InvalidPredictionError` | A Prediction value does not match `prediction_schema`. |
+| `InvalidReferenceError` | A Reference value does not match `reference_schema`, or the Ground Truth cannot be scored. |
 | `BuddhistEvalError` | `iou_threshold` is outside `(0, 1]`, or `tolerance` is negative. |
 
 ## Development
@@ -349,12 +398,13 @@ PYTHONPATH=src pytest
 PYTHONPATH=src pytest --cov buddhist_eval
 ```
 
-Public entry points live in `buddhist_eval`. Metric logic is in `src/buddhist_eval/core/`. Text preparation and the EvalAI loader are in `src/buddhist_eval/utils/`. Tests call only the public functions.
+Public entry points live in `buddhist_eval`. Metric logic is in `src/buddhist_eval/core/`. The Scorer type and registry are in `core/scorer.py` and `core/registry.py`. Text preparation and the EvalAI and JSONL loaders are in `src/buddhist_eval/utils/`. Tests call only the public functions.
 
 ## Additional documentation
 
-- [GLOSSARY.md](GLOSSARY.md) — Reference, Prediction, CER, WER, Span, Tag, Match, IoU Threshold.
+- [GLOSSARY.md](GLOSSARY.md) — Reference, Prediction, Input, CER, WER, Span, Tag, Match, IoU Threshold, Scorer, Headline Metric, Direction.
 - [docs/adr/0001-tibetan-scored-on-wylie.md](docs/adr/0001-tibetan-scored-on-wylie.md) — why Tibetan is scored on Wylie.
+- [docs/adr/0002-scorer-names-are-immutable.md](docs/adr/0002-scorer-names-are-immutable.md) — why a changed computation gets a new Scorer name.
 - [docs/help.md](docs/help.md) — where to ask questions.
 
 ## How to get help

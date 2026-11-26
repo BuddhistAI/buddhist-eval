@@ -1,17 +1,28 @@
-"""Scorer and Parameter types behind the scorer registry."""
+"""Scorer, Parameter and ScoreResult types behind the scorer registry."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from copy import deepcopy
+from dataclasses import dataclass, field, fields, is_dataclass
 from enum import Enum
 from typing import Any
 
-from buddhist_eval.errors import InvalidParameterError
+from buddhist_eval.errors import (
+    BuddhistEvalError,
+    IdMismatchError,
+    InvalidInputError,
+    InvalidParameterError,
+    InvalidPredictionError,
+    InvalidReferenceError,
+)
+from buddhist_eval.utils.payloads import Parser, parse_mapping
 
-ScoreFunction = Callable[
-    [Mapping[str, Any], Mapping[str, Any], Mapping[str, Any]], float
+Compute = Callable[
+    [Mapping[str, Any], Mapping[str, Any], Mapping[str, Any], Mapping[str, Any]],
+    tuple[float, Any],
 ]
+"""``(inputs, references, predictions, params) -> (headline_metric, result)``."""
 
 _JSON_TYPES: dict[type, str] = {
     str: "string",
@@ -20,12 +31,32 @@ _JSON_TYPES: dict[type, str] = {
     bool: "boolean",
 }
 
+_MAX_IDS_IN_MESSAGE = 5
 
-class SortDirection(str, Enum):
-    """Which way a leaderboard sorts a Scorer's value."""
+
+class Direction(str, Enum):
+    """Whether a lower or a higher Headline Metric ranks first."""
 
     LOWER_IS_BETTER = "lower_is_better"
     HIGHER_IS_BETTER = "higher_is_better"
+
+
+@dataclass(frozen=True)
+class ScoreResult:
+    """What ``Scorer.score`` returns.
+
+    Attributes:
+        headline_metric: The unrounded number a leaderboard ranks by.
+        details: The metric's full result object as plain JSON values
+            (dicts, lists, strings, numbers, booleans).
+    """
+
+    headline_metric: float
+    details: dict[str, Any]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return ``{"headline_metric": ..., "details": ...}`` for storage as JSON."""
+        return {"headline_metric": self.headline_metric, "details": self.details}
 
 
 @dataclass(frozen=True)
@@ -106,19 +137,31 @@ class Parameter:
 
 @dataclass(frozen=True)
 class Scorer:
-    """A registered metric: identity, sort direction, input schemas and ``score``.
+    """A registered metric: identity, Direction, schemas and one ``score`` call.
 
-    ``prediction_schema`` and ``reference_schema`` are JSON Schemas for one
-    value in the ``predictions`` and ``references`` mappings, keyed by item id.
+    ``input_schema``, ``reference_schema`` and ``prediction_schema`` are JSON
+    Schemas for one value in the ``inputs``, ``references`` and ``predictions``
+    mappings, each keyed by item id. A Scorer whose ``parse_input`` is
+    ``None`` ignores ``inputs``.
     """
 
     name: str
     label: str
-    direction: SortDirection
+    direction: Direction
     parameters: tuple[Parameter, ...]
-    prediction_schema: Mapping[str, Any]
+    input_schema: Mapping[str, Any]
     reference_schema: Mapping[str, Any]
-    score_function: ScoreFunction = field(repr=False, compare=False)
+    prediction_schema: Mapping[str, Any]
+    sample_prediction: Any
+    parse_input: Parser[Any] | None = field(repr=False, compare=False)
+    parse_reference: Parser[Any] = field(repr=False, compare=False)
+    parse_prediction: Parser[Any] = field(repr=False, compare=False)
+    compute: Compute = field(repr=False, compare=False)
+
+    @property
+    def uses_inputs(self) -> bool:
+        """Whether ``score`` reads ``inputs`` (span F1 and TOC take passage text)."""
+        return self.parse_input is not None
 
     @property
     def parameter_schema(self) -> dict[str, Any]:
@@ -154,41 +197,166 @@ class Scorer:
 
     def score(
         self,
-        predictions: Mapping[str, Any],
+        inputs: Mapping[str, Any],
         references: Mapping[str, Any],
+        predictions: Mapping[str, Any],
         **params: Any,
-    ) -> float:
-        """Score predictions against references and return the leaderboard value.
+    ) -> ScoreResult:
+        """Score Predictions against References and return the Headline Metric.
+
+        Missing and extra prediction ids are handled as the underlying metric
+        handles them; use ``validate_predictions`` first to reject them.
 
         Args:
-            predictions: Mapping from item id to a value matching ``prediction_schema``.
+            inputs: Mapping from item id to an Input value matching
+                ``input_schema``. Ignored unless ``uses_inputs``.
             references: Mapping from item id to a value matching ``reference_schema``.
+            predictions: Mapping from item id to a value matching ``prediction_schema``.
             **params: Values for this Scorer's parameters.
 
         Returns:
-            The unrounded score; sort it using ``direction``.
+            A ScoreResult with the unrounded Headline Metric (sort it by
+            ``direction``) and the metric's full result as JSON values.
 
         Raises:
             InvalidParameterError: If a parameter is unknown or invalid.
-            InvalidPredictionError: If a prediction value has the wrong shape.
-            InvalidReferenceError: If a reference value has the wrong shape.
+            InvalidInputError: If an Input has the wrong shape, or a Reference
+                has no Input (only when ``uses_inputs``).
+            InvalidReferenceError: If a Reference has the wrong shape.
+            InvalidPredictionError: If a Prediction has the wrong shape.
             BuddhistEvalError: Any error the underlying metric raises.
         """
-        return self.score_function(
-            predictions, references, self.validate_params(params)
+        values = self.validate_params(params)
+        parsed_inputs = self._parse_inputs(inputs, references)
+        parsed_references = parse_mapping(
+            references, self.parse_reference, "reference", InvalidReferenceError
+        )
+        parsed_predictions = parse_mapping(
+            predictions, self.parse_prediction, "prediction", InvalidPredictionError
+        )
+        headline, result = self.compute(
+            parsed_inputs, parsed_references, parsed_predictions, values
+        )
+        return ScoreResult(headline_metric=headline, details=_to_json(result))
+
+    def validate_ground_truth(
+        self,
+        inputs: Mapping[str, Any],
+        references: Mapping[str, Any],
+        **params: Any,
+    ) -> None:
+        """Check a Challenge's Inputs, Ground Truth and parameters before saving.
+
+        The Inputs and the Ground Truth must hold exactly the same ids, every
+        value must match its schema, and the Ground Truth must be scorable
+        (for example every Gold Span lies inside its passage text).
+
+        Args:
+            inputs: Mapping from item id to Input value.
+            references: Mapping from item id to Reference value.
+            **params: Values for this Scorer's parameters.
+
+        Raises:
+            InvalidParameterError: If a parameter is unknown or invalid.
+            IdMismatchError: If the two id sets differ.
+            InvalidInputError: If an Input has the wrong shape.
+            InvalidReferenceError: If a Reference has the wrong shape or
+                cannot be scored.
+        """
+        self.validate_params(params)
+        _require_same_ids(inputs, references, "Inputs", "Ground Truth")
+        try:
+            self.score(inputs, references, {}, **params)
+        except (InvalidInputError, InvalidReferenceError):
+            raise
+        except BuddhistEvalError as exc:
+            raise InvalidReferenceError(
+                f"Ground Truth cannot be scored: {exc}"
+            ) from exc
+
+    def validate_predictions(
+        self, inputs: Mapping[str, Any], predictions: Mapping[str, Any]
+    ) -> None:
+        """Check a Predictions File: one Prediction per Input id, each well shaped.
+
+        Args:
+            inputs: Mapping from item id to Input value; only its ids are used.
+            predictions: Mapping from item id to Prediction value.
+
+        Raises:
+            IdMismatchError: If the prediction ids differ from the Input ids.
+            InvalidPredictionError: If a Prediction has the wrong shape.
+        """
+        _require_same_ids(inputs, predictions, "Inputs", "Predictions")
+        parse_mapping(
+            predictions, self.parse_prediction, "prediction", InvalidPredictionError
         )
 
     def describe(self) -> dict[str, Any]:
         """Return a JSON-serialisable description for listing endpoints.
 
         Returns:
-            The name, label, direction value and the three JSON Schemas.
+            The name, label, direction value, the four JSON Schemas and the
+            placeholder Prediction for ``sample_submission.jsonl``.
         """
         return {
             "name": self.name,
             "label": self.label,
             "direction": self.direction.value,
             "parameter_schema": self.parameter_schema,
-            "prediction_schema": dict(self.prediction_schema),
-            "reference_schema": dict(self.reference_schema),
+            "input_schema": deepcopy(dict(self.input_schema)),
+            "reference_schema": deepcopy(dict(self.reference_schema)),
+            "prediction_schema": deepcopy(dict(self.prediction_schema)),
+            "sample_prediction": deepcopy(self.sample_prediction),
         }
+
+    def _parse_inputs(
+        self, inputs: Mapping[str, Any], references: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        if self.parse_input is None:
+            return {}
+        missing = sorted(set(references) - set(inputs))
+        if missing:
+            raise InvalidInputError(f"no Input for reference id(s) {_preview(missing)}")
+        return parse_mapping(inputs, self.parse_input, "input", InvalidInputError)
+
+
+def _require_same_ids(
+    expected: Mapping[str, Any],
+    actual: Mapping[str, Any],
+    expected_name: str,
+    actual_name: str,
+) -> None:
+    missing = tuple(sorted(set(expected) - set(actual)))
+    extra = tuple(sorted(set(actual) - set(expected)))
+    if not (missing or extra):
+        return
+    problems = []
+    if missing:
+        problems.append(f"missing {len(missing)} id(s) {_preview(missing)}")
+    if extra:
+        problems.append(
+            f"has {len(extra)} id(s) not in {expected_name} {_preview(extra)}"
+        )
+    raise IdMismatchError(
+        f"{actual_name} {'; '.join(problems)}", missing_ids=missing, extra_ids=extra
+    )
+
+
+def _preview(ids: list[str] | tuple[str, ...]) -> str:
+    shown = ", ".join(repr(i) for i in ids[:_MAX_IDS_IN_MESSAGE])
+    more = len(ids) - _MAX_IDS_IN_MESSAGE
+    return f"[{shown}{f', ... {more} more' if more > 0 else ''}]"
+
+
+def _to_json(value: Any) -> Any:
+    """Convert a metric result into plain JSON values."""
+    if is_dataclass(value) and not isinstance(value, type):
+        return {f.name: _to_json(getattr(value, f.name)) for f in fields(value)}
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, Mapping):
+        return {str(key): _to_json(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_to_json(item) for item in value]
+    return value
