@@ -18,6 +18,7 @@ from buddhist_eval.core.scorer import (
     DisplayStyle,
     Parameter,
     Scorer,
+    SummaryEntry,
 )
 from buddhist_eval.core.spans import Document, score_spans_batch
 from buddhist_eval.core.toc import TocPassage, score_toc_batch
@@ -115,6 +116,24 @@ _PERCENT_2 = DisplayFormat(DisplayStyle.PERCENT, 2)
 _DECIMAL_3 = DisplayFormat(DisplayStyle.DECIMAL, 3)
 # Accuracy reads naturally as a share of questions, so it is shown as a percent.
 _PERCENT_1 = DisplayFormat(DisplayStyle.PERCENT, 1)
+_COUNT = DisplayFormat(DisplayStyle.DECIMAL, 0)
+
+# Public Summaries declare only top-level aggregate numbers from each metric's
+# details. Per-item results (items, skipped/missing/extra ids) stay private.
+# span_f1's per_tag is an aggregate, but its tags differ per Challenge, so it
+# cannot be declared as fixed keys. toc's details hold no aggregate besides
+# the Headline Metric (mean), so its summary is empty.
+_CER_SUMMARY = (SummaryEntry("corpus", "Corpus CER", _PERCENT_2),)
+_WER_SUMMARY = (SummaryEntry("corpus", "Corpus WER", _PERCENT_2),)
+_SPAN_F1_SUMMARY = (
+    SummaryEntry("precision", "Precision", _DECIMAL_3),
+    SummaryEntry("recall", "Recall", _DECIMAL_3),
+    SummaryEntry("mean_iou", "Mean IoU of matched spans", _DECIMAL_3),
+)
+_MCQ_SUMMARY = (
+    SummaryEntry("n_correct", "Correct answers", _COUNT),
+    SummaryEntry("n_total", "Questions", _COUNT),
+)
 
 Values = Mapping[str, Any]
 
@@ -185,6 +204,7 @@ _SCORERS: tuple[Scorer, ...] = (
         parse_prediction=parse_text,
         compute=_compute_cer,
         display_format=_PERCENT_2,
+        public_summary=_CER_SUMMARY,
     ),
     Scorer(
         name="wer",
@@ -200,6 +220,7 @@ _SCORERS: tuple[Scorer, ...] = (
         parse_prediction=parse_text,
         compute=_compute_wer,
         display_format=_PERCENT_2,
+        public_summary=_WER_SUMMARY,
     ),
     Scorer(
         name="span_f1",
@@ -215,6 +236,7 @@ _SCORERS: tuple[Scorer, ...] = (
         parse_prediction=parse_spans,
         compute=_compute_span_f1,
         display_format=_DECIMAL_3,
+        public_summary=_SPAN_F1_SUMMARY,
     ),
     Scorer(
         name="toc",
@@ -230,6 +252,7 @@ _SCORERS: tuple[Scorer, ...] = (
         parse_prediction=parse_predicted_headings,
         compute=_compute_toc,
         display_format=_DECIMAL_3,
+        public_summary=(),
     ),
     Scorer(
         name="mcq_accuracy",
@@ -245,6 +268,7 @@ _SCORERS: tuple[Scorer, ...] = (
         parse_prediction=parse_text,
         compute=_compute_mcq,
         display_format=_PERCENT_1,
+        public_summary=_MCQ_SUMMARY,
     ),
 )
 

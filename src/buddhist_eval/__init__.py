@@ -17,6 +17,7 @@ from buddhist_eval.core.scorer import (
     Parameter,
     Scorer,
     ScoreResult,
+    SummaryEntry,
 )
 from buddhist_eval.core.spans import (
     Document,
@@ -89,6 +90,7 @@ __all__ = [
     "Span",
     "SpanBatchScore",
     "SpanScore",
+    "SummaryEntry",
     "TagScore",
     "TocBatchScore",
     "TocPassage",

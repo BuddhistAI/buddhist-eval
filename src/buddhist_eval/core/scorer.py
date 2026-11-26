@@ -65,6 +65,26 @@ class DisplayFormat:
 
 
 @dataclass(frozen=True)
+class SummaryEntry:
+    """One aggregate number a Scorer lets the public see beside its Headline Metric.
+
+    Attributes:
+        key: Top-level key into the Scorer's ``details`` holding one number.
+            Never a per-item list or a map keyed by Input id.
+        label: Human-readable name, for example "Corpus CER".
+        format: How to show the number.
+    """
+
+    key: str
+    label: str
+    format: DisplayFormat
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return ``{"key": ..., "label": ..., "format": ...}`` as plain JSON values."""
+        return {"key": self.key, "label": self.label, "format": self.format.to_dict()}
+
+
+@dataclass(frozen=True)
 class ScoreResult:
     """What ``Scorer.score`` returns.
 
@@ -181,6 +201,7 @@ class Scorer:
     parse_prediction: Parser[Any] = field(repr=False, compare=False)
     compute: Compute = field(repr=False, compare=False)
     display_format: DisplayFormat
+    public_summary: tuple[SummaryEntry, ...]
 
     @property
     def uses_inputs(self) -> bool:
@@ -321,14 +342,15 @@ class Scorer:
 
         Returns:
             The name, label, direction value, the Headline Metric's display
-            format, the four JSON Schemas and the placeholder Prediction for
-            ``sample_submission.jsonl``.
+            format, the Public Summary declaration, the four JSON Schemas and
+            the placeholder Prediction for ``sample_submission.jsonl``.
         """
         return {
             "name": self.name,
             "label": self.label,
             "direction": self.direction.value,
             "display_format": self.display_format.to_dict(),
+            "public_summary": [entry.to_dict() for entry in self.public_summary],
             "parameter_schema": self.parameter_schema,
             "input_schema": deepcopy(dict(self.input_schema)),
             "reference_schema": deepcopy(dict(self.reference_schema)),

@@ -20,3 +20,42 @@ def test_display_format_per_scorer(name: str, style: str, decimals: int) -> None
     described = get_scorer(name).describe()
 
     assert described["display_format"] == {"style": style, "decimals": decimals}
+
+
+PERCENT_2 = {"style": "percent", "decimals": 2}
+DECIMAL_3 = {"style": "decimal", "decimals": 3}
+COUNT = {"style": "decimal", "decimals": 0}
+
+
+@pytest.mark.parametrize(
+    ("name", "declared"),
+    [
+        ("cer", [{"key": "corpus", "label": "Corpus CER", "format": PERCENT_2}]),
+        ("wer", [{"key": "corpus", "label": "Corpus WER", "format": PERCENT_2}]),
+        (
+            "span_f1",
+            [
+                {"key": "precision", "label": "Precision", "format": DECIMAL_3},
+                {"key": "recall", "label": "Recall", "format": DECIMAL_3},
+                {
+                    "key": "mean_iou",
+                    "label": "Mean IoU of matched spans",
+                    "format": DECIMAL_3,
+                },
+            ],
+        ),
+        ("toc", []),
+        (
+            "mcq_accuracy",
+            [
+                {"key": "n_correct", "label": "Correct answers", "format": COUNT},
+                {"key": "n_total", "label": "Questions", "format": COUNT},
+            ],
+        ),
+    ],
+)
+def test_public_summary_declaration_per_scorer(
+    name: str, declared: list[dict[str, object]]
+) -> None:
+    """Each Scorer lists, in order, the aggregate numbers it lets the public see."""
+    assert get_scorer(name).describe()["public_summary"] == declared
