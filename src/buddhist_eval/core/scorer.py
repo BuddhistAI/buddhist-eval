@@ -374,12 +374,7 @@ class Scorer:
             ``details`` is left out.
         """
         return [
-            {
-                "key": entry.key,
-                "label": entry.label,
-                "value": details[entry.key],
-                "format": entry.format.to_dict(),
-            }
+            {**entry.to_dict(), "value": details[entry.key]}
             for entry in self.public_summary
             if entry.key in details
         ]
