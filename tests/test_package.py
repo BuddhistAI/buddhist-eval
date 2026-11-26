@@ -11,9 +11,9 @@ from buddhist_eval import (
 )
 
 
-def test_package_version_is_0_2_0() -> None:
-    """buddhist_eval exposes version 0.2.0."""
-    assert buddhist_eval.__version__ == "0.2.0"
+def test_package_version_is_0_3_0() -> None:
+    """buddhist_eval exposes version 0.3.0."""
+    assert buddhist_eval.__version__ == "0.3.0"
 
 
 def test_error_classes_are_exported_and_share_base() -> None:
