@@ -358,6 +358,32 @@ class Scorer:
             "sample_prediction": deepcopy(self.sample_prediction),
         }
 
+    def summarise(self, details: Mapping[str, Any]) -> list[dict[str, Any]]:
+        """Reduce stored details to this Scorer's Public Summary.
+
+        This is the one place that decides what of a score is public: only
+        the declared aggregate numbers survive, never per-item scores.
+
+        Args:
+            details: ``ScoreResult.details`` as returned by ``score`` or
+                read back from storage.
+
+        Returns:
+            One ``{"key", "label", "value", "format"}`` dict per declared
+            entry, in declaration order. A declared key missing from
+            ``details`` is left out.
+        """
+        return [
+            {
+                "key": entry.key,
+                "label": entry.label,
+                "value": details[entry.key],
+                "format": entry.format.to_dict(),
+            }
+            for entry in self.public_summary
+            if entry.key in details
+        ]
+
     def _parse_inputs(
         self, inputs: Mapping[str, Any], references: Mapping[str, Any]
     ) -> dict[str, Any]:

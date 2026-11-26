@@ -59,3 +59,30 @@ def test_public_summary_declaration_per_scorer(
 ) -> None:
     """Each Scorer lists, in order, the aggregate numbers it lets the public see."""
     assert get_scorer(name).describe()["public_summary"] == declared
+
+
+def test_summarise_cer_returns_the_corpus_rate() -> None:
+    """Summarising a CER result keeps the corpus rate and drops per-item scores."""
+    cer = get_scorer("cer")
+    # "a": 1 substitution over 4 characters; "b": 5 deletions over 5.
+    result = cer.score({}, {"a": "abcd", "b": "ef gh"}, {"a": "abxd"}, language="en")
+
+    summary = cer.summarise(result.details)
+
+    assert summary == [
+        {
+            "key": "corpus",
+            "label": "Corpus CER",
+            "value": pytest.approx(6 / 9),
+            "format": PERCENT_2,
+        }
+    ]
+
+
+def test_summarise_omits_a_declared_key_missing_from_details() -> None:
+    """Details stored before a key existed summarise without it, not with an error."""
+    summary = get_scorer("mcq_accuracy").summarise({"accuracy": 0.5, "n_total": 4})
+
+    assert summary == [
+        {"key": "n_total", "label": "Questions", "value": 4, "format": COUNT}
+    ]
