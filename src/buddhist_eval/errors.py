@@ -17,5 +17,9 @@ class InvalidSpanError(BuddhistEvalError):
     """Raised when a Span is out of range or inverted."""
 
 
+class InvalidHeadingError(BuddhistEvalError):
+    """Raised when a Gold Heading has a depth below 1 or a start outside its text."""
+
+
 class MalformedEvalAIFileError(BuddhistEvalError):
     """Raised when an EvalAI JSON file is invalid or inconsistently structured."""

@@ -8,7 +8,7 @@ version = "0.1.0"
 authors = [
   { name="OpenPecha", email="dev@openpecha.org" },
 ]
-description = "CER, WER and Span IoU-F1 scoring for Tibetan OCR, speech-to-text and span annotation"
+description = "CER, WER, Span IoU-F1 and TOC heading scoring for Tibetan OCR, speech-to-text, span annotation and outline extraction"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

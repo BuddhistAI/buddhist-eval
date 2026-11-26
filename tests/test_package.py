@@ -4,6 +4,7 @@ import buddhist_eval
 from buddhist_eval import (
     BuddhistEvalError,
     EmptyInputError,
+    InvalidHeadingError,
     InvalidSpanError,
     MalformedEvalAIFileError,
     MisalignedTextsError,
@@ -20,5 +21,6 @@ def test_error_classes_are_exported_and_share_base() -> None:
     assert issubclass(EmptyInputError, BuddhistEvalError)
     assert issubclass(MisalignedTextsError, BuddhistEvalError)
     assert issubclass(InvalidSpanError, BuddhistEvalError)
+    assert issubclass(InvalidHeadingError, BuddhistEvalError)
     assert issubclass(MalformedEvalAIFileError, BuddhistEvalError)
     assert issubclass(BuddhistEvalError, Exception)

@@ -15,6 +15,8 @@
   <a href="#install">Install</a> •
   <a href="#character-and-word-error-rate">CER and WER</a> •
   <a href="#span-iou-f1">Span IoU F1</a> •
+  <a href="#toc-heading-score">TOC</a> •
+  <a href="#multiple-choice-accuracy">MCQ</a> •
   <a href="#load-evalai-json">EvalAI JSON</a> •
   <a href="#errors">Errors</a> •
   <a href="#how-to-get-help">Help</a>
@@ -44,6 +46,8 @@ Domain terms are defined in [GLOSSARY.md](GLOSSARY.md). The Wylie decision is re
 - `score_cer` and `score_wer` score one Reference against one Prediction.
 - `score_cer_batch` and `score_wer_batch` score a mapping of item ids and return a per-item mean plus a corpus rate.
 - `score_spans` and `score_spans_batch` score Predicted Spans against Gold Spans and return precision, recall, and F1.
+- `score_toc` and `score_toc_batch` score extracted outline headings by position and depth.
+- `score_mcq` scores multiple-choice answers against an Answer Key and returns accuracy.
 - `load_evalai_json` reads the existing EvalAI file shape into the mapping the batch scorers take.
 
 CER and WER are independent. Calling one never computes the other. Scores are unrounded.
@@ -213,6 +217,58 @@ batch = score_spans_batch(golds, predictions, iou_threshold=0.5)
 
 Counts are pooled across documents before precision, recall, and F1 are computed, so the result is one corpus-level score. A gold id with no predicted document adds its Gold Spans to `n_gold` and contributes no Matches, which lowers recall. Predicted ids with no gold are ignored and listed in `extra_ids`.
 
+## TOC heading score
+
+Scores outline headings (ས་བཅད, sa-bcad) extracted from a passage. This is the metric of the `toc-extraction/bo` task in [buddhist-benchmarks](https://github.com/BuddhistAI/buddhist-benchmarks), as implemented by `evaluate_headings` in [toc-extraction-tibetan](https://github.com/BuddhistAI/toc-extraction-tibetan/blob/main/benchmark/gepa_toc.py). Scores are identical to that implementation.
+
+A `Heading` is a Gold Heading: `depth` (1 is the shallowest level in the passage) and `start`, its character offset in the text. A `PredictedHeading` is `depth` and `anchor`, the verbatim text the heading starts with. A `TocPassage` is the text plus its Gold Headings in reading order. Titles are not scored.
+
+1. Each anchor is stripped and searched verbatim in the text, starting one character after the previous located anchor. An anchor that is not found still counts as a prediction but cannot match.
+2. In prediction order, each located heading matches the nearest unused Gold Heading whose `start` is within `tolerance` characters (default `3`). Each Gold Heading matches at most once.
+3. Two F1 scores are computed over all predictions and all Gold Headings: position F1 counts every match, and depth F1 counts only matches with the same depth.
+
+```text
+score = 0.3 * position_f1 + 0.7 * depth_f1
+F1    = 1.0 when there are no predictions and no Gold Headings
+score = max(0, 1 - 0.25 * n_pred) when the passage has no Gold Headings
+```
+
+```python
+from buddhist_eval import Heading, PredictedHeading, TocPassage, score_toc
+
+passage = TocPassage(text="abcdefghij0123456789", headings=(Heading(1, 0), Heading(2, 10)))
+result = score_toc(passage, (PredictedHeading(1, "abc"), PredictedHeading(1, "012")))
+# result.position_f1 == 1.0, result.depth_f1 == 0.5, result.score is about 0.65
+```
+
+`TocScore` fields: `score`, `position_f1`, `depth_f1`, `n_gold`, `n_pred`, `n_located`, `n_position_match`, and `n_depth_match`.
+
+`score_toc_batch(passages, predictions)` takes mappings from passage id to `TocPassage` and to a tuple of `PredictedHeading`. It returns `TocBatchScore` with `mean` (every passage weighted equally, as in the benchmark), per-passage `items`, and `extra_ids`. A passage with no prediction is scored as an empty prediction.
+
+## Multiple-choice accuracy
+
+Scores a multiple-choice benchmark against an Answer Key: a mapping from question id to the correct choice. Each predicted choice is compared to the key by exact match after stripping whitespace and ignoring case, so `" b "` matches `"B"`. The model's choice must already be extracted; free-text answers such as `"The answer is B"` are not parsed.
+
+```text
+accuracy = n_correct / n_total
+n_total  = every question in the Answer Key
+```
+
+```python
+from buddhist_eval import score_mcq
+
+answer_key = {"q1": "A", "q2": "C", "q3": "B"}
+predictions = {"q1": "A", "q2": "D", "q9": "A"}
+
+result = score_mcq(answer_key, predictions)
+# result.accuracy == 1 / 3   (multiply by 100 for a percentage)
+# result.items       {"q1": True, "q2": False, "q3": False}
+# result.missing_ids ("q3",)  counted as wrong
+# result.extra_ids   ("q9",)  ignored
+```
+
+With 89 correct out of 100 questions, `result.accuracy` is `0.89`, or 89%. `McqScore` fields: `accuracy`, `n_correct`, `n_total`, `items`, `missing_ids`, and `extra_ids`. An empty Answer Key, or a blank answer in it, raises `EmptyInputError`.
+
 ## Load EvalAI JSON
 
 The loader accepts a list of `{filename, label}` or `{filename, prediction}` objects, or one such object. `label` is the Reference field and `prediction` is the Prediction field.
@@ -235,11 +291,12 @@ Every failure raises `BuddhistEvalError` or a subclass. Invalid input is never t
 
 | Exception | When |
 | --- | --- |
-| `EmptyInputError` | Empty Reference on a single pair, an empty batch, or a batch with nothing left to score. |
+| `EmptyInputError` | Empty Reference on a single pair, an empty batch, a batch with nothing left to score, or an empty or blank Answer Key entry. |
 | `MisalignedTextsError` | Gold and predicted document texts differ. |
 | `InvalidSpanError` | A span is negative, ends before it starts, or runs past the text. |
+| `InvalidHeadingError` | A Gold Heading has a depth below 1 or a start outside its text. |
 | `MalformedEvalAIFileError` | The EvalAI JSON cannot be read into a filename-to-text mapping. |
-| `BuddhistEvalError` | `iou_threshold` is outside `(0, 1]`. |
+| `BuddhistEvalError` | `iou_threshold` is outside `(0, 1]`, or `tolerance` is negative. |
 
 ## Development
 

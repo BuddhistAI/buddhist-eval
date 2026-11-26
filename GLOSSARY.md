@@ -45,3 +45,24 @@ A one-to-one pairing of a Predicted Span and a Gold Span whose IoU meets the IoU
 
 **IoU Threshold**:
 The minimum overlap (intersection over union) at which a Predicted Span and a Gold Span count as a Match.
+
+## TOC scoring
+
+**Heading**:
+An outline heading (ས་བཅད, sa-bcad) in a passage, with a depth (1 is the shallowest level in that passage) and a start offset. A Gold Heading comes from the ground truth.
+_Avoid_: Section, chapter, TOC entry
+
+**Anchor**:
+The verbatim text a Predicted Heading starts with. It is located in the passage to give the heading a start offset.
+
+**Tolerance**:
+The maximum character distance between a located Anchor and a Gold Heading's start for the two to match.
+
+## MCQ scoring
+
+**Answer Key**:
+The correct choice for each multiple-choice question, keyed by question id.
+_Avoid_: Gold answers, labels
+
+**Accuracy**:
+The share of Answer Key questions whose predicted choice equals the correct choice, ignoring case and surrounding whitespace. A question with no prediction is wrong.
