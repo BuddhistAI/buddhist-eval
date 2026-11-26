@@ -2,7 +2,30 @@
 
 import pytest
 
-from buddhist_eval import get_scorer
+from buddhist_eval import get_scorer, list_scorers
+
+PASSAGE = "abcdefghij0123456789"
+
+# One real batch per Scorer, with several Input ids, a missing and an extra
+# Prediction, so every per-item field in the details is populated.
+REAL_BATCHES: dict[str, tuple[dict, dict, dict]] = {
+    "cer": ({}, {"a": "abcd", "b": "ef gh"}, {"a": "abxd", "z": "q"}),
+    "wer": ({}, {"a": "བོད་ཡིག", "b": "ཆོས"}, {"a": "བོད་སྐད", "z": "ཆོས"}),
+    "span_f1": (
+        {"d1": "0123456789", "d2": "abcdef"},
+        {
+            "d1": [{"start": 0, "end": 4, "tag": "quote"}],
+            "d2": [{"start": 1, "end": 3, "tag": "name"}],
+        },
+        {"d1": [{"start": 0, "end": 3, "tag": "quote"}], "zz": []},
+    ),
+    "toc": (
+        {"p": PASSAGE, "q": PASSAGE},
+        {"p": [{"depth": 1, "start": 0}], "q": [{"depth": 2, "start": 10}]},
+        {"p": [{"depth": 1, "anchor": "abc"}], "zz": []},
+    ),
+    "mcq_accuracy": ({}, {"q1": "A", "q2": "C"}, {"q1": "a", "q9": "B"}),
+}
 
 
 @pytest.mark.parametrize(
@@ -86,3 +109,23 @@ def test_summarise_omits_a_declared_key_missing_from_details() -> None:
     assert summary == [
         {"key": "n_total", "label": "Questions", "value": 4, "format": COUNT}
     ]
+
+
+def test_every_scorer_has_a_real_batch_here() -> None:
+    """The privacy check below covers every registered Scorer."""
+    assert sorted(REAL_BATCHES) == sorted(s.name for s in list_scorers())
+
+
+@pytest.mark.parametrize("name", sorted(REAL_BATCHES))
+def test_summarising_a_real_result_never_exposes_per_item_scores(name: str) -> None:
+    """Every summarised value is one number; per-item lists and maps never appear."""
+    scorer = get_scorer(name)
+    inputs, references, predictions = REAL_BATCHES[name]
+    result = scorer.score(inputs, references, predictions)
+
+    summary = scorer.summarise(result.details)
+
+    assert [e["key"] for e in summary] == [e.key for e in scorer.public_summary]
+    for entry in summary:
+        assert type(entry["value"]) in (int, float), entry
+        assert set(entry) == {"key", "label", "value", "format"}
