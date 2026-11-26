@@ -23,3 +23,19 @@ class InvalidHeadingError(BuddhistEvalError):
 
 class MalformedEvalAIFileError(BuddhistEvalError):
     """Raised when an EvalAI JSON file is invalid or inconsistently structured."""
+
+
+class UnknownScorerError(BuddhistEvalError):
+    """Raised when no Scorer is registered under the requested name."""
+
+
+class InvalidParameterError(BuddhistEvalError):
+    """Raised when a Scorer parameter is unknown, mistyped or out of range."""
+
+
+class InvalidPredictionError(BuddhistEvalError):
+    """Raised when a Prediction value does not match the Scorer's prediction schema."""
+
+
+class InvalidReferenceError(BuddhistEvalError):
+    """Raised when a Reference value does not match the Scorer's reference schema."""

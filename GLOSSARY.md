@@ -66,3 +66,13 @@ _Avoid_: Gold answers, labels
 
 **Accuracy**:
 The share of Answer Key questions whose predicted choice equals the correct choice, ignoring case and surrounding whitespace. A question with no prediction is wrong.
+
+## Registry
+
+**Scorer**:
+A registered metric with a name, a display label, a Direction, optional parameters, schemas for one prediction and one reference value, and a `score` call that returns one float.
+_Avoid_: Evaluator, metric plugin
+
+**Direction**:
+Whether a lower or a higher Scorer value is better. A leaderboard sorts ascending for lower-is-better (CER, WER) and descending for higher-is-better.
+_Avoid_: Sort order, polarity

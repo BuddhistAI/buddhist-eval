@@ -9,6 +9,8 @@ from buddhist_eval.core.error_rates import (
     score_wer_batch,
 )
 from buddhist_eval.core.mcq import McqScore, score_mcq
+from buddhist_eval.core.registry import get_scorer, list_scorers
+from buddhist_eval.core.scorer import Parameter, Scorer, SortDirection
 from buddhist_eval.core.spans import (
     Document,
     Span,
@@ -31,9 +33,13 @@ from buddhist_eval.errors import (
     BuddhistEvalError,
     EmptyInputError,
     InvalidHeadingError,
+    InvalidParameterError,
+    InvalidPredictionError,
+    InvalidReferenceError,
     InvalidSpanError,
     MalformedEvalAIFileError,
     MisalignedTextsError,
+    UnknownScorerError,
 )
 from buddhist_eval.utils.evalai import load_evalai_json
 
@@ -47,11 +53,17 @@ __all__ = [
     "ErrorRateScore",
     "Heading",
     "InvalidHeadingError",
+    "InvalidParameterError",
+    "InvalidPredictionError",
+    "InvalidReferenceError",
     "InvalidSpanError",
     "MalformedEvalAIFileError",
     "McqScore",
     "MisalignedTextsError",
+    "Parameter",
     "PredictedHeading",
+    "Scorer",
+    "SortDirection",
     "Span",
     "SpanBatchScore",
     "SpanScore",
@@ -59,6 +71,9 @@ __all__ = [
     "TocBatchScore",
     "TocPassage",
     "TocScore",
+    "UnknownScorerError",
+    "get_scorer",
+    "list_scorers",
     "load_evalai_json",
     "score_cer",
     "score_cer_batch",

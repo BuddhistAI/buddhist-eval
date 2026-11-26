@@ -49,6 +49,7 @@ Domain terms are defined in [GLOSSARY.md](GLOSSARY.md). The Wylie decision is re
 - `score_toc` and `score_toc_batch` score extracted outline headings by position and depth.
 - `score_mcq` scores multiple-choice answers against an Answer Key and returns accuracy.
 - `load_evalai_json` reads the existing EvalAI file shape into the mapping the batch scorers take.
+- `list_scorers` and `get_scorer` expose every metric through one registry with a shared `score(predictions, references, **params) -> float` call, for the challenge backend.
 
 CER and WER are independent. Calling one never computes the other. Scores are unrounded.
 
@@ -285,6 +286,44 @@ batch = score_cer_batch(references, predictions, language="bo")
 
 Duplicate filenames, a missing `filename`, a missing text field, or invalid JSON raise `MalformedEvalAIFileError`. There is no span-file loader: the span API needs the document text, and the quotation gold files do not include it.
 
+## Scorer registry
+
+The challenge backend never calls the metric functions directly. It lists the registered Scorers to fill the scorer dropdown, stores a Scorer's name, params and direction on the challenge, and later scores each submission with `get_scorer(name).score(...)`.
+
+Each `Scorer` has:
+
+| Field | Meaning |
+| --- | --- |
+| `name` | Registry key stored on the challenge, for example `"cer"`. |
+| `label` | Display name for the dropdown. |
+| `direction` | `SortDirection.LOWER_IS_BETTER` or `HIGHER_IS_BETTER`; `.value` is the `challenge.json` string. |
+| `parameter_schema` | JSON Schema for the params object. Every parameter is optional and has a default. |
+| `prediction_schema` | JSON Schema for one prediction value. |
+| `reference_schema` | JSON Schema for one ground-truth value. |
+| `score(predictions, references, **params)` | Returns one unrounded float. |
+
+`predictions` and `references` map item id to a decoded JSON value. Missing and extra ids are handled as in the underlying metric.
+
+| Name | Direction | Params (default) | Prediction | Reference | Returns |
+| --- | --- | --- | --- | --- | --- |
+| `cer` | lower | `language` (`"bo"`), `aggregate` (`"mean"` or `"corpus"`) | string | string | `score_cer_batch` mean or corpus |
+| `wer` | lower | same as `cer` | string | string | `score_wer_batch` mean or corpus |
+| `span_f1` | higher | `iou_threshold` (`0.5`) | `[{start, end, tag}]` | `{text, spans}` | `score_spans_batch` F1 |
+| `toc` | higher | `tolerance` (`3`) | `[{depth, anchor}]` | `{text, headings: [{depth, start}]}` | `score_toc_batch` mean |
+| `mcq_accuracy` | higher | none | string | string | `score_mcq` accuracy |
+
+```python
+from buddhist_eval import get_scorer, list_scorers
+
+dropdown = [scorer.describe() for scorer in list_scorers()]   # JSON-ready
+
+cer = get_scorer("cer")
+params = cer.validate_params({"language": "bo"})               # at challenge creation
+score = cer.score({"page-1": "བོད་སྐད"}, {"page-1": "བོད་ཡིག"}, **params)
+```
+
+An unregistered name raises `UnknownScorerError`. An unknown or invalid parameter raises `InvalidParameterError`. A value that does not match the prediction or reference schema raises `InvalidPredictionError` or `InvalidReferenceError`, so the backend can tell a bad submission from bad ground truth.
+
 ## Errors
 
 Every failure raises `BuddhistEvalError` or a subclass. Invalid input is never turned into a score.
@@ -296,6 +335,10 @@ Every failure raises `BuddhistEvalError` or a subclass. Invalid input is never t
 | `InvalidSpanError` | A span is negative, ends before it starts, or runs past the text. |
 | `InvalidHeadingError` | A Gold Heading has a depth below 1 or a start outside its text. |
 | `MalformedEvalAIFileError` | The EvalAI JSON cannot be read into a filename-to-text mapping. |
+| `UnknownScorerError` | `get_scorer` is given a name that is not registered. |
+| `InvalidParameterError` | A Scorer parameter is unknown, has the wrong type, is not an allowed choice, or is out of range. |
+| `InvalidPredictionError` | A prediction value passed to `Scorer.score` does not match `prediction_schema`. |
+| `InvalidReferenceError` | A reference value passed to `Scorer.score` does not match `reference_schema`. |
 | `BuddhistEvalError` | `iou_threshold` is outside `(0, 1]`, or `tolerance` is negative. |
 
 ## Development
