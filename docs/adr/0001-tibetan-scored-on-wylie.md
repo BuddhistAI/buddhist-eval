@@ -1,0 +1,3 @@
+# Tibetan is scored on Wylie, not raw Unicode
+
+For `language="bo"`, the Reference and the Prediction are converted to Wylie with `pyewts` before CER and WER are computed. This keeps our scores comparable with the OpenPecha EvalAI leaderboard (`openpecha_evalai_backend/Evaluation/evaluation.py`), which has always scored this way. It also turns the tsek into a space, so WER becomes a per-syllable rate. The cost is that one Tibetan stack spans several Wylie letters, so a single wrong stack counts as several character edits. Tibetan CER here is therefore not comparable with tools that score Unicode code points, such as plain `jiwer.cer` on the original text. Switching to code points later would break comparability with every past score.
