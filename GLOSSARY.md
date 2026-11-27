@@ -84,3 +84,7 @@ _Avoid_: Score (alone), primary metric
 **Direction**:
 Whether a lower or a higher Headline Metric ranks first: `lower_is_better` (CER, WER) or `higher_is_better` (span F1, TOC, MCQ accuracy).
 _Avoid_: Sort order, polarity
+
+**Public Summary**:
+The few aggregate numbers a Scorer declares safe to show beside the Headline Metric, for example Corpus CER, each with a label and a display format. `summarise` reduces a Scorer's details to it. Per-item scores are never part of it.
+_Avoid_: Score details (when meaning what is shown)

@@ -41,6 +41,49 @@ class Direction(str, Enum):
     HIGHER_IS_BETTER = "higher_is_better"
 
 
+class DisplayStyle(str, Enum):
+    """How a number is shown: as a percentage (0.0123 -> 1.23%) or as a decimal."""
+
+    PERCENT = "percent"
+    DECIMAL = "decimal"
+
+
+@dataclass(frozen=True)
+class DisplayFormat:
+    """How to show a number: a style and how many decimals to keep.
+
+    ``decimals`` counts digits after the point in the shown text, so CER
+    0.01234 as ``DisplayFormat(PERCENT, 2)`` reads "1.23%".
+    """
+
+    style: DisplayStyle
+    decimals: int
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return ``{"style": ..., "decimals": ...}`` as plain JSON values."""
+        return {"style": self.style.value, "decimals": self.decimals}
+
+
+@dataclass(frozen=True)
+class SummaryEntry:
+    """One aggregate number a Scorer lets the public see beside its Headline Metric.
+
+    Attributes:
+        key: Top-level key into the Scorer's ``details`` holding one number.
+            Never a per-item list or a map keyed by Input id.
+        label: Human-readable name, for example "Corpus CER".
+        format: How to show the number.
+    """
+
+    key: str
+    label: str
+    format: DisplayFormat
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return ``{"key": ..., "label": ..., "format": ...}`` as plain JSON values."""
+        return {"key": self.key, "label": self.label, "format": self.format.to_dict()}
+
+
 @dataclass(frozen=True)
 class ScoreResult:
     """What ``Scorer.score`` returns.
@@ -157,6 +200,8 @@ class Scorer:
     parse_reference: Parser[Any] = field(repr=False, compare=False)
     parse_prediction: Parser[Any] = field(repr=False, compare=False)
     compute: Compute = field(repr=False, compare=False)
+    display_format: DisplayFormat
+    public_summary: tuple[SummaryEntry, ...]
 
     @property
     def uses_inputs(self) -> bool:
@@ -296,19 +341,43 @@ class Scorer:
         """Return a JSON-serialisable description for listing endpoints.
 
         Returns:
-            The name, label, direction value, the four JSON Schemas and the
-            placeholder Prediction for ``sample_submission.jsonl``.
+            The name, label, direction value, the Headline Metric's display
+            format, the Public Summary declaration, the four JSON Schemas and
+            the placeholder Prediction for ``sample_submission.jsonl``.
         """
         return {
             "name": self.name,
             "label": self.label,
             "direction": self.direction.value,
+            "display_format": self.display_format.to_dict(),
+            "public_summary": [entry.to_dict() for entry in self.public_summary],
             "parameter_schema": self.parameter_schema,
             "input_schema": deepcopy(dict(self.input_schema)),
             "reference_schema": deepcopy(dict(self.reference_schema)),
             "prediction_schema": deepcopy(dict(self.prediction_schema)),
             "sample_prediction": deepcopy(self.sample_prediction),
         }
+
+    def summarise(self, details: Mapping[str, Any]) -> list[dict[str, Any]]:
+        """Reduce stored details to this Scorer's Public Summary.
+
+        This is the one place that decides what of a score is public: only
+        the declared aggregate numbers survive, never per-item scores.
+
+        Args:
+            details: ``ScoreResult.details`` as returned by ``score`` or
+                read back from storage.
+
+        Returns:
+            One ``{"key", "label", "value", "format"}`` dict per declared
+            entry, in declaration order. A declared key missing from
+            ``details`` is left out.
+        """
+        return [
+            {**entry.to_dict(), "value": details[entry.key]}
+            for entry in self.public_summary
+            if entry.key in details
+        ]
 
     def _parse_inputs(
         self, inputs: Mapping[str, Any], references: Mapping[str, Any]

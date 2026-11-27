@@ -303,9 +303,12 @@ Each `Scorer` has:
 | `reference_schema` | JSON Schema for one Reference value. |
 | `prediction_schema` | JSON Schema for one Prediction value. |
 | `sample_prediction` | A placeholder Prediction of the right shape, for `sample_submission.jsonl`. |
+| `display_format` | How to show the Headline Metric: a `DisplayFormat` with a `style` (`percent` or `decimal`) and a number of `decimals`. |
+| `public_summary` | The Public Summary declaration: an ordered tuple of `SummaryEntry(key, label, format)`, each a top-level key into `details` holding one aggregate number. May be empty. |
 | `score(inputs, references, predictions, **params)` | Returns a `ScoreResult`. |
 | `validate_ground_truth(inputs, references, **params)` | Checks a challenge before it is saved. |
 | `validate_predictions(inputs, predictions)` | Checks a Predictions File before it is scored. |
+| `summarise(details)` | Reduces stored `details` to the Public Summary: a list of `{key, label, value, format}`, one per declared entry whose key is in `details`. |
 | `describe()` | All of the above as plain JSON, for a listing endpoint. |
 
 `inputs`, `references` and `predictions` each map item id to a decoded JSON value. `score` returns a `ScoreResult` with:
@@ -320,6 +323,16 @@ Each `Scorer` has:
 | `span_f1` | higher | `iou_threshold` (`0.5`) | passage text | `[{start, end, tag}]` | `[{start, end, tag}]` | `score_spans_batch` `f1` | precision, recall, counts, `per_tag`, `extra_ids` |
 | `toc` | higher | `tolerance` (`3`) | passage text | `[{depth, start}]` | `[{depth, anchor}]` | `score_toc_batch` `mean` | per-passage `items`, `extra_ids` |
 | `mcq_accuracy` | higher | none | ignored | string (the correct choice) | string | `score_mcq` `accuracy` | `n_correct`, `n_total`, `items`, `missing_ids`, `extra_ids` |
+
+| Name | Display format | Public Summary |
+| --- | --- | --- |
+| `cer` | percent, 2 | `corpus` "Corpus CER" (percent, 2) |
+| `wer` | percent, 2 | `corpus` "Corpus WER" (percent, 2) |
+| `span_f1` | decimal, 3 | `precision`, `recall`, `mean_iou` (decimal, 3) |
+| `toc` | decimal, 3 | none: the details hold no other aggregate |
+| `mcq_accuracy` | percent, 1 | `n_correct` "Correct answers", `n_total` "Questions" (decimal, 0) |
+
+Per-item scores (`items`, the id lists, and `span_f1`'s `per_tag`, whose tags vary per challenge) are never part of a Public Summary. Show a score publicly only through `summarise`, so a new detail field stays private until a Scorer declares it.
 
 For CER and WER the Headline Metric is the per-item `mean`, which matches the EvalAI leaderboard; the length-weighted `corpus` rate is a detail. Span and heading offsets index into the Input's passage text. Each Scorer returns exactly the numbers of the batch function it wraps.
 
@@ -359,7 +372,8 @@ predictions = load_predictions("predictions.jsonl")
 cer.validate_predictions(inputs, predictions)
 result = cer.score(inputs, references, predictions, **params)
 result.headline_metric  # rank by this, using cer.direction
-result.details["corpus"]  # every other number
+result.details["corpus"]  # every other number; store details privately
+cer.summarise(result.details)  # the numbers safe to show publicly
 ```
 
 `validate_ground_truth` requires the Inputs and the Ground Truth to hold exactly the same ids, every value to match its schema, and the Ground Truth to be scorable (for example every Gold Span inside its passage, no blank answer). `validate_predictions` requires exactly one Prediction per Input id, each matching `prediction_schema`.
@@ -402,7 +416,7 @@ Public entry points live in `buddhist_eval`. Metric logic is in `src/buddhist_ev
 
 ## Additional documentation
 
-- [GLOSSARY.md](GLOSSARY.md) — Reference, Prediction, Input, CER, WER, Span, Tag, Match, IoU Threshold, Scorer, Headline Metric, Direction.
+- [GLOSSARY.md](GLOSSARY.md) — Reference, Prediction, Input, CER, WER, Span, Tag, Match, IoU Threshold, Scorer, Headline Metric, Direction, Public Summary.
 - [docs/adr/0001-tibetan-scored-on-wylie.md](docs/adr/0001-tibetan-scored-on-wylie.md) — why Tibetan is scored on Wylie.
 - [docs/adr/0002-scorer-names-are-immutable.md](docs/adr/0002-scorer-names-are-immutable.md) — why a changed computation gets a new Scorer name.
 - [docs/help.md](docs/help.md) — where to ask questions.
